@@ -1,0 +1,7 @@
+{
+  "name": "ChronosForce - Attendance & Workforce Intelligence",
+  "description": "A comprehensive workforce management system featuring real-time attendance tracking, project-based time logging, hierarchy-based management, and AI-driven operational insights.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
