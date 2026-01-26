@@ -1,16 +1,18 @@
 
 import React, { useState } from 'react';
 import { Employee, UserRole, EmployeeStatus, Project } from '../types';
-import { UserPlus, Settings, Save, X, Briefcase, Key, Eye } from 'lucide-react';
+// Added ShieldCheck to the imports to fix "Cannot find name 'ShieldCheck'" error
+import { UserPlus, Settings, Save, X, Briefcase, Key, Eye, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
 
 interface AdminPortalProps {
   onAddEmployee: (emp: Employee) => void;
   onUpdateEmployee: (emp: Employee) => void;
   employees: Employee[];
   projects: Project[];
+  onResetWorkforce: () => void;
 }
 
-const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmployee, employees, projects }) => {
+const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmployee, employees, projects, onResetWorkforce }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState({
@@ -80,7 +82,8 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
         supervisorId: null,
         status: EmployeeStatus.OFF,
         lastActionTime: new Date().toISOString(),
-        totalMinutesWorkedToday: 0
+        totalMinutesWorkedToday: 0,
+        otEnabled: false
       };
       onAddEmployee(newEmp);
     }
@@ -99,13 +102,35 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-900">System Directory</h2>
-        <button 
-          onClick={openAddForm}
-          className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 flex items-center transition-all"
-        >
-          <UserPlus className="w-5 h-5 mr-2" /> New Employee
-        </button>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">System Directory</h2>
+          <p className="text-sm text-slate-500">Root administration and account oversight.</p>
+        </div>
+        <div className="flex space-x-4">
+          <button 
+            onClick={onResetWorkforce}
+            className="px-6 py-3 border border-slate-200 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 flex items-center transition-all"
+            title="Emergency workforce reset"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" /> Restore Defaults
+          </button>
+          <button 
+            onClick={openAddForm}
+            className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 flex items-center transition-all"
+          >
+            <UserPlus className="w-5 h-5 mr-2" /> New Employee
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-100 p-6 rounded-3xl flex items-start space-x-4">
+        <AlertCircle className="text-amber-600 w-6 h-6 mt-1" />
+        <div>
+          <h4 className="font-bold text-amber-900 text-sm">Security Policy: Root Protection Active</h4>
+          <p className="text-sm text-amber-800/80 leading-relaxed mt-1">
+            The master account (Jahanzaib Khan) is protected from deletion to prevent system lockouts. Other users can be deleted with one-click efficiency.
+          </p>
+        </div>
       </div>
 
       {showForm && (
@@ -227,7 +252,10 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
                    <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center font-bold text-indigo-700">{emp.name.charAt(0)}</div>
                       <div>
-                        <div className="font-bold text-slate-900">{emp.name}</div>
+                        <div className="font-bold text-slate-900 leading-tight flex items-center">
+                          {emp.name}
+                          {emp.id === 'dev-root' && <ShieldCheck className="w-3.5 h-3.5 ml-1.5 text-indigo-600" />}
+                        </div>
                         <div className="text-xs text-slate-400">{emp.code}</div>
                       </div>
                    </div>

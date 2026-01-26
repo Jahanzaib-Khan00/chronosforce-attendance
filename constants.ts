@@ -51,6 +51,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.ACTIVE,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 420,
+    otEnabled: true
   },
   {
     id: 'tm1',
@@ -67,6 +68,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.ACTIVE,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 300,
+    otEnabled: true
   },
   {
     id: 'dir1',
@@ -83,6 +85,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.ACTIVE,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 120,
+    otEnabled: false
   },
   {
     id: 'sup1',
@@ -99,6 +102,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.ACTIVE,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 200,
+    otEnabled: true
   },
   {
     id: 'tl1',
@@ -115,6 +119,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.ACTIVE,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 240,
+    otEnabled: false
   },
   {
     id: 'e2',
@@ -122,6 +127,7 @@ export const MOCK_EMPLOYEES: Employee[] = [
     name: 'David Chen',
     username: 'david',
     password: 'password123',
+    // Fix: Wrapped unquoted email string in single quotes
     email: 'david.c@chronos.ai',
     role: UserRole.EMPLOYEE,
     shift: { start: '09:00', end: '17:00' },
@@ -131,5 +137,6 @@ export const MOCK_EMPLOYEES: Employee[] = [
     status: EmployeeStatus.BREAK,
     lastActionTime: new Date().toISOString(),
     totalMinutesWorkedToday: 180,
+    otEnabled: true
   }
 ];

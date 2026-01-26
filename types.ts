@@ -54,10 +54,11 @@ export interface Employee {
   shift: Shift;
   allowedProjectIds: string[];
   activeProjectId: string;
-  supervisorId: string | null; // The person they report to
+  supervisorId: string | null; 
   status: EmployeeStatus;
   lastActionTime: string; 
   totalMinutesWorkedToday: number;
+  otEnabled: boolean; // Permanent OT permission flag
 }
 
 export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NOT_REQUIRED';
@@ -82,4 +83,34 @@ export interface AttendanceRecord {
   type: 'CLOCK_IN' | 'CLOCK_OUT' | 'BREAK_START' | 'BREAK_END' | 'PROJECT_CHANGE';
   timestamp: string;
   projectId?: string;
+}
+
+// Added OvertimeApproval interface to fix missing export error in ReportBuilder.tsx
+export interface OvertimeApproval {
+  id: string;
+  employeeId: string;
+  date: string;
+  approvedBy: string;
+  status: ApprovalStatus;
+}
+
+export interface DailyActivityLog {
+  id: string;
+  employeeId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  overtimeHours: number;
+  projectIds: string[];
+  note: string;
+  submittedAt: string;
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  senderName: string;
+  receiverId?: string; // If null, it's a global broadcast
+  content: string;
+  timestamp: string;
 }

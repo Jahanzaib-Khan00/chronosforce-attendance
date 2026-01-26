@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee, UserRole, Project, EmployeeStatus } from '../types';
-import { UserPlus, Search, Briefcase, Clock, UserCheck, Trash2, Edit3, X, Save } from 'lucide-react';
+import { UserPlus, Search, Briefcase, Clock, UserCheck, Trash2, Edit3, X, Save, Zap, ShieldCheck } from 'lucide-react';
 
 interface EmployeeManagerProps {
   employees: Employee[];
@@ -26,7 +26,6 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   
-  // Form State
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -37,7 +36,8 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
     shiftStart: '09:00',
     shiftEnd: '17:00',
     supervisorId: '',
-    projectIds: [] as string[]
+    projectIds: [] as string[],
+    otEnabled: false
   });
 
   const roleWeights: Record<UserRole, number> = {
@@ -67,7 +67,8 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
     setEditingEmployee(null);
     setFormData({
       name: '', code: '', username: '', email: '', password: 'password123',
-      role: UserRole.EMPLOYEE, shiftStart: '09:00', shiftEnd: '17:00', supervisorId: '', projectIds: []
+      role: UserRole.EMPLOYEE, shiftStart: '09:00', shiftEnd: '17:00', supervisorId: '', projectIds: [],
+      otEnabled: false
     });
     setShowForm(true);
   };
@@ -84,7 +85,8 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
       shiftStart: emp.shift.start,
       shiftEnd: emp.shift.end,
       supervisorId: emp.supervisorId || '',
-      projectIds: [...emp.allowedProjectIds]
+      projectIds: [...emp.allowedProjectIds],
+      otEnabled: emp.otEnabled || false
     });
     setShowForm(true);
   };
@@ -103,6 +105,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
         shift: { start: formData.shiftStart, end: formData.shiftEnd },
         allowedProjectIds: formData.projectIds,
         supervisorId: formData.supervisorId || null,
+        otEnabled: formData.otEnabled
       };
       onUpdateEmployee(updatedEmp);
     } else {
@@ -120,7 +123,8 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
         supervisorId: formData.supervisorId || null,
         status: EmployeeStatus.OFF,
         lastActionTime: new Date().toISOString(),
-        totalMinutesWorkedToday: 0
+        totalMinutesWorkedToday: 0,
+        otEnabled: formData.otEnabled
       };
       onAddEmployee(newEmp);
     }
@@ -177,7 +181,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Full Name</label>
-                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl outline-none" placeholder="John Doe" />
+                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl outline-none font-bold" placeholder="John Doe" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee Code</label>
@@ -192,7 +196,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Organization Role</label>
-                <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})} className="w-full p-4 bg-slate-50 border rounded-xl outline-none">
+                <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})} className="w-full p-4 bg-slate-50 border rounded-xl outline-none font-bold">
                   {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
                 </select>
               </div>
@@ -229,6 +233,22 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                     ))}
                   </div>
                </div>
+               
+               <button 
+                type="button"
+                onClick={() => setFormData({...formData, otEnabled: !formData.otEnabled})}
+                className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                  formData.otEnabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}
+               >
+                 <div className="flex items-center space-x-3">
+                   <Zap size={18} className={formData.otEnabled ? 'text-emerald-500' : 'text-slate-300'} />
+                   <span className="text-xs font-black uppercase tracking-widest">Overtime Perms</span>
+                 </div>
+                 <div className={`w-10 h-5 rounded-full relative transition-colors ${formData.otEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                   <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${formData.otEnabled ? 'right-1' : 'left-1'}`}></div>
+                 </div>
+               </button>
             </div>
 
             <div className="lg:col-span-3 flex justify-end items-center gap-4 pt-6 border-t border-slate-100">
@@ -248,7 +268,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
               <tr>
                 <th className="px-8 py-5">Employee Identity</th>
                 <th className="px-8 py-5">Deployment</th>
-                <th className="px-8 py-5">Shift Config</th>
+                <th className="px-8 py-5">OT Perms</th>
                 <th className="px-8 py-5">Reports To</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
@@ -257,15 +277,20 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
               {filteredEmployees.map(emp => {
                 const supervisor = employees.find(e => e.id === emp.supervisorId);
                 const isEditable = canEdit(emp);
+                const isRoot = emp.id === 'dev-root';
+
                 return (
-                  <tr key={emp.id} className="hover:bg-slate-50/30 transition-colors group">
+                  <tr key={emp.id} className={`hover:bg-slate-50/30 transition-colors group ${isRoot ? 'bg-indigo-50/30' : ''}`}>
                     <td className="px-8 py-5">
                       <div className="flex items-center space-x-4">
-                        <div className="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-bold text-sm">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm ${isRoot ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
                           {emp.name.charAt(0)}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-900 leading-none">{emp.name}</p>
+                          <p className="font-bold text-slate-900 leading-none flex items-center">
+                            {emp.name}
+                            {isRoot && <ShieldCheck size={14} className="ml-2 text-indigo-600" title="Protected Account" />}
+                          </p>
                           <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold">{emp.code} • {emp.role.replace('_', ' ')}</p>
                         </div>
                       </div>
@@ -284,10 +309,13 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                       </div>
                     </td>
                     <td className="px-8 py-5">
-                      <div className="flex items-center text-slate-600 font-medium">
-                        <Clock className="w-3.5 h-3.5 mr-2 text-slate-300" />
-                        <span className="text-sm">{emp.shift.start} — {emp.shift.end}</span>
-                      </div>
+                      {emp.otEnabled ? (
+                        <span className="flex items-center text-emerald-600 text-[10px] font-black uppercase">
+                          <Zap size={10} className="mr-1" /> Authorized
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase text-slate-300">Standard</span>
+                      )}
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center">
@@ -306,13 +334,15 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                             >
                               <Edit3 size={16} />
                             </button>
-                            <button 
-                              onClick={() => onDeleteEmployee(emp.id)}
-                              className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
-                              title="Remove Staff Member"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            {!isRoot && (
+                              <button 
+                                onClick={() => onDeleteEmployee(emp.id)}
+                                className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
+                                title="Remove Staff Member"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
                           </>
                         ) : (
                           <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Read Only</span>
