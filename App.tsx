@@ -179,7 +179,7 @@ const App: React.FC = () => {
             {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={handleAddProject} onUpdateProject={handleUpdateProject} onDeleteProject={handleDeleteProject} currentUser={currentUser} />}
             {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={handleAddEmployee} onUpdateEmployee={handleUpdateEmployee} onDeleteEmployee={handleDeleteEmployee} currentUser={currentUser} />}
             {activeTab === 'REQUESTS' && <RequestManager requests={leaveRequests} userRole={currentUser.role} onApprove={handleApprove} onReject={handleReject} />}
-            {activeTab === 'ADMIN' && <AdminPortal onAddEmployee={handleAddEmployee} employees={allEmployees} projects={allProjects} />}
+            {activeTab === 'ADMIN' && <AdminPortal onAddEmployee={handleAddEmployee} onUpdateEmployee={handleUpdateEmployee} employees={allEmployees} projects={allProjects} />}
           </div>
         </div>
       </main>

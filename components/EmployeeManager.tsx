@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Employee, UserRole, Project, EmployeeStatus, Shift } from '../types';
-import { UserPlus, Search, Briefcase, Clock, UserCheck, Trash2, Edit3, X, Save, ShieldCheck } from 'lucide-react';
+import { Employee, UserRole, Project, EmployeeStatus } from '../types';
+import { UserPlus, Search, Briefcase, Clock, UserCheck, Trash2, Edit3, X, Save } from 'lucide-react';
 
 interface EmployeeManagerProps {
   employees: Employee[];
@@ -23,7 +23,8 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterProject, setFilterProject] = useState('');
   const [filterRole, setFilterRole] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   
   // Form State
   const [formData, setFormData] = useState({
@@ -39,7 +40,19 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
     projectIds: [] as string[]
   });
 
-  const canManage = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR].includes(currentUser.role);
+  const roleWeights: Record<UserRole, number> = {
+    [UserRole.EMPLOYEE]: 0,
+    [UserRole.TEAM_LEAD]: 1,
+    [UserRole.SUPERVISOR]: 2,
+    [UserRole.DIRECTOR]: 3,
+    [UserRole.ADMIN]: 4,
+    [UserRole.TOP_MANAGEMENT]: 5,
+  };
+
+  const canEdit = (target: Employee) => {
+    if (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.TOP_MANAGEMENT) return true;
+    return roleWeights[currentUser.role] > roleWeights[target.role];
+  };
 
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
@@ -50,30 +63,68 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
     });
   }, [employees, searchTerm, filterProject, filterRole]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newEmp: Employee = {
-      id: Math.random().toString(36).substr(2, 9),
-      code: formData.code,
-      name: formData.name,
-      username: formData.username || formData.name.toLowerCase().replace(/\s+/g, '.'),
-      password: formData.password,
-      email: formData.email,
-      role: formData.role,
-      shift: { start: formData.shiftStart, end: formData.shiftEnd },
-      allowedProjectIds: formData.projectIds,
-      activeProjectId: formData.projectIds[0] || 'p3',
-      supervisorId: formData.supervisorId || null,
-      status: EmployeeStatus.OFF,
-      lastActionTime: new Date().toISOString(),
-      totalMinutesWorkedToday: 0
-    };
-    onAddEmployee(newEmp);
-    setShowAddForm(false);
+  const openAddForm = () => {
+    setEditingEmployee(null);
     setFormData({
       name: '', code: '', username: '', email: '', password: 'password123',
       role: UserRole.EMPLOYEE, shiftStart: '09:00', shiftEnd: '17:00', supervisorId: '', projectIds: []
     });
+    setShowForm(true);
+  };
+
+  const openEditForm = (emp: Employee) => {
+    setEditingEmployee(emp);
+    setFormData({
+      name: emp.name,
+      code: emp.code,
+      username: emp.username,
+      email: emp.email,
+      password: emp.password || 'password123',
+      role: emp.role,
+      shiftStart: emp.shift.start,
+      shiftEnd: emp.shift.end,
+      supervisorId: emp.supervisorId || '',
+      projectIds: [...emp.allowedProjectIds]
+    });
+    setShowForm(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingEmployee) {
+      const updatedEmp: Employee = {
+        ...editingEmployee,
+        code: formData.code,
+        name: formData.name,
+        username: formData.username,
+        password: formData.password,
+        email: formData.email,
+        role: formData.role,
+        shift: { start: formData.shiftStart, end: formData.shiftEnd },
+        allowedProjectIds: formData.projectIds,
+        supervisorId: formData.supervisorId || null,
+      };
+      onUpdateEmployee(updatedEmp);
+    } else {
+      const newEmp: Employee = {
+        id: Math.random().toString(36).substr(2, 9),
+        code: formData.code,
+        name: formData.name,
+        username: formData.username || formData.name.toLowerCase().replace(/\s+/g, '.'),
+        password: formData.password,
+        email: formData.email,
+        role: formData.role,
+        shift: { start: formData.shiftStart, end: formData.shiftEnd },
+        allowedProjectIds: formData.projectIds,
+        activeProjectId: formData.projectIds[0] || 'p3',
+        supervisorId: formData.supervisorId || null,
+        status: EmployeeStatus.OFF,
+        lastActionTime: new Date().toISOString(),
+        totalMinutesWorkedToday: 0
+      };
+      onAddEmployee(newEmp);
+    }
+    setShowForm(false);
   };
 
   const toggleProject = (pid: string) => {
@@ -108,7 +159,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <button 
-            onClick={() => setShowAddForm(true)}
+            onClick={openAddForm}
             className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
           >
             <UserPlus className="w-4 h-4 mr-2" /> Add Staff
@@ -116,11 +167,11 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
         </div>
       </div>
 
-      {showAddForm && (
+      {showForm && (
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xl animate-in zoom-in-95 duration-300">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-slate-800">Add New Staff Member</h3>
-            <button onClick={() => setShowAddForm(false)} className="text-slate-400 hover:text-slate-600 p-2"><X /></button>
+            <h3 className="text-xl font-bold text-slate-800">{editingEmployee ? `Editing: ${editingEmployee.name}` : 'Add New Staff Member'}</h3>
+            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600 p-2"><X /></button>
           </div>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div className="space-y-4">
@@ -149,7 +200,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Direct Supervisor</label>
                 <select value={formData.supervisorId} onChange={e => setFormData({...formData, supervisorId: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-xl outline-none">
                   <option value="">No Reporting Manager</option>
-                  {employees.filter(e => e.role !== UserRole.EMPLOYEE).map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
+                  {employees.filter(e => e.role !== UserRole.EMPLOYEE && e.id !== (editingEmployee?.id || '')).map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -181,9 +232,9 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
             </div>
 
             <div className="lg:col-span-3 flex justify-end items-center gap-4 pt-6 border-t border-slate-100">
-               <button type="button" onClick={() => setShowAddForm(false)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-all">Cancel</button>
+               <button type="button" onClick={() => setShowForm(false)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-all">Cancel</button>
                <button type="submit" className="bg-indigo-600 text-white px-10 py-3 rounded-2xl font-bold flex items-center shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95">
-                 <Save className="w-4 h-4 mr-2" /> Save Staff Member
+                 <Save className="w-4 h-4 mr-2" /> {editingEmployee ? 'Update Profile' : 'Save Staff Member'}
                </button>
             </div>
           </form>
@@ -205,6 +256,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
             <tbody className="divide-y divide-slate-50">
               {filteredEmployees.map(emp => {
                 const supervisor = employees.find(e => e.id === emp.supervisorId);
+                const isEditable = canEdit(emp);
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50/30 transition-colors group">
                     <td className="px-8 py-5">
@@ -214,7 +266,7 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                         </div>
                         <div>
                           <p className="font-bold text-slate-900 leading-none">{emp.name}</p>
-                          <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold">{emp.code} • {emp.role}</p>
+                          <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold">{emp.code} • {emp.role.replace('_', ' ')}</p>
                         </div>
                       </div>
                     </td>
@@ -244,18 +296,28 @@ const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                       </div>
                     </td>
                     <td className="px-8 py-5 text-right">
-                      {canManage && (
-                        <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" title="Edit Staff Member"><Edit3 size={16} /></button>
-                          <button 
-                            onClick={() => onDeleteEmployee(emp.id)}
-                            className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
-                            title="Remove Staff Member"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isEditable ? (
+                          <>
+                            <button 
+                              onClick={() => openEditForm(emp)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" 
+                              title="Edit Staff Member"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                            <button 
+                              onClick={() => onDeleteEmployee(emp.id)}
+                              className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
+                              title="Remove Staff Member"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Read Only</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
