@@ -12,18 +12,68 @@ import CommunicationCenter from './components/CommunicationCenter';
 import Login from './components/Login';
 import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle } from 'lucide-react';
 
+// Storage Keys for persistence
+const STORAGE_KEYS = {
+  EMPLOYEES: 'cf_employees_v2',
+  PROJECTS: 'cf_projects_v2',
+  RECORDS: 'cf_records_v2',
+  REQUESTS: 'cf_requests_v2',
+  MESSAGES: 'cf_messages_v2',
+  LOGS: 'cf_logs_v2',
+  LAST_READ: 'cf_last_read_v2'
+};
+
 const App: React.FC = () => {
+  // --- Persistent State Initialization ---
+  const [allEmployees, setAllEmployees] = useState<Employee[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
+    return saved ? JSON.parse(saved) : MOCK_EMPLOYEES;
+  });
+
+  const [allProjects, setAllProjects] = useState<Project[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+    return saved ? JSON.parse(saved) : PROJECTS;
+  });
+
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.REQUESTS);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.RECORDS);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [dailyActivityLogs, setDailyActivityLogs] = useState<DailyActivityLog[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.LOGS);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [lastReadTimestamps, setLastReadTimestamps] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.LAST_READ);
+    return saved ? JSON.parse(saved) : {};
+  });
+
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
-  const [allEmployees, setAllEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
-  const [allProjects, setAllProjects] = useState<Project[]>(PROJECTS);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [dailyActivityLogs, setDailyActivityLogs] = useState<DailyActivityLog[]>([]);
-  const [lastReadTimestamps, setLastReadTimestamps] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'PORTAL' | 'MANAGEMENT' | 'ADMIN' | 'REQUESTS' | 'PROJECTS' | 'EMPLOYEES'>('PORTAL');
   const [showMessageCenter, setShowMessageCenter] = useState(false);
 
+  // --- Persistence Sync Hooks ---
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(allEmployees)), [allEmployees]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects)), [allProjects]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(attendanceRecords)), [attendanceRecords]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(leaveRequests)), [leaveRequests]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages)), [messages]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(dailyActivityLogs)), [dailyActivityLogs]);
+  useEffect(() => localStorage.setItem(STORAGE_KEYS.LAST_READ, JSON.stringify(lastReadTimestamps)), [lastReadTimestamps]);
+
+  // --- Real-time Productivity Tick ---
   useEffect(() => {
     const timer = setInterval(() => {
       setAllEmployees(prev => prev.map(emp => {
@@ -75,20 +125,26 @@ const App: React.FC = () => {
   };
 
   const handleDeleteEmployee = (empId: string) => {
-    // Root Security Guardrail: Jahanzaib Khan cannot be deleted.
     if (empId === 'dev-root') {
-      alert("SYSTEM PROTECTION: The Root Administrator account (Jahanzaib Khan) is part of the core infrastructure and cannot be removed.");
+      alert("PROTECTION ACTIVE: The Root Administrator account (Jahanzaib Khan) cannot be deleted.");
       return;
     }
-    
-    // One-click deletion as requested (removed confirm)
+    // One-click deletion restored
     setAllEmployees(prev => prev.filter(e => e.id !== empId));
   };
 
   const handleResetWorkforce = () => {
-    if (window.confirm("Emergency Procedure: This will restore the default workforce and may overwrite custom accounts. Proceed?")) {
+    if (window.confirm("CRITICAL ACTION: This will wipe all saved data and restore the initial factory settings. Proceed?")) {
+      Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
       setAllEmployees(MOCK_EMPLOYEES);
-      alert("System workforce restored to defaults.");
+      setAllProjects(PROJECTS);
+      setAttendanceRecords([]);
+      setLeaveRequests([]);
+      setMessages([]);
+      setDailyActivityLogs([]);
+      setLastReadTimestamps({});
+      alert("System factory reset complete.");
+      window.location.reload();
     }
   };
 
@@ -115,7 +171,7 @@ const App: React.FC = () => {
   if (!currentUser) return <Login onLogin={setCurrentUser} employees={allEmployees} />;
 
   const hasMgmtAccess = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser.role);
-  const isHighLevel = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR].includes(currentUser.role);
+  const isHighLevel = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser.role);
 
   return (
     <div className="min-h-screen flex bg-slate-50">
