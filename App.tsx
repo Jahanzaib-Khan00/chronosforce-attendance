@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [allEmployees, setAllEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
   const [allProjects, setAllProjects] = useState<Project[]>(PROJECTS);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'PORTAL' | 'MANAGEMENT' | 'ADMIN' | 'REQUESTS' | 'PROJECTS' | 'EMPLOYEES'>('PORTAL');
 
   const handleLogin = (user: Employee) => {
@@ -29,9 +30,36 @@ const App: React.FC = () => {
 
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
     if (!currentUser) return;
+    
+    const timestamp = new Date().toISOString();
+    let recordType: AttendanceRecord['type'] = 'PROJECT_CHANGE';
+
+    // Determine the log type based on status transition
+    if (status === EmployeeStatus.ACTIVE && currentUser.status === EmployeeStatus.OFF) {
+      recordType = 'CLOCK_IN';
+    } else if (status === EmployeeStatus.OFF) {
+      recordType = 'CLOCK_OUT';
+    } else if (status === EmployeeStatus.BREAK) {
+      recordType = 'BREAK_START';
+    } else if (status === EmployeeStatus.ACTIVE && currentUser.status === EmployeeStatus.BREAK) {
+      recordType = 'BREAK_END';
+    } else if (projectId && projectId !== currentUser.activeProjectId) {
+      recordType = 'PROJECT_CHANGE';
+    }
+
+    const newRecord: AttendanceRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      employeeId: currentUser.id,
+      type: recordType,
+      timestamp,
+      projectId: projectId || currentUser.activeProjectId
+    };
+
+    setAttendanceRecords(prev => [...prev, newRecord]);
+
     const updatedEmployees = allEmployees.map(emp => {
       if (emp.id === currentUser.id) {
-        const updated = { ...emp, status, activeProjectId: projectId || emp.activeProjectId, lastActionTime: new Date().toISOString() };
+        const updated = { ...emp, status, activeProjectId: projectId || emp.activeProjectId, lastActionTime: timestamp };
         setCurrentUser(updated);
         return updated;
       }
@@ -79,12 +107,29 @@ const App: React.FC = () => {
   };
 
   const handleRequestLeave = (reqData: any) => {
+    if (!currentUser) return;
+
+    let teamLeadStatus: any = 'PENDING';
+    let supervisorStatus: any = 'PENDING';
+    let directorStatus: any = 'PENDING';
+
+    if (currentUser.role === UserRole.TEAM_LEAD) {
+      teamLeadStatus = 'NOT_REQUIRED';
+    } else if (currentUser.role === UserRole.SUPERVISOR) {
+      teamLeadStatus = 'NOT_REQUIRED';
+      supervisorStatus = 'NOT_REQUIRED';
+    } else if ([UserRole.DIRECTOR, UserRole.TOP_MANAGEMENT, UserRole.ADMIN].includes(currentUser.role)) {
+      teamLeadStatus = 'NOT_REQUIRED';
+      supervisorStatus = 'NOT_REQUIRED';
+      directorStatus = 'PENDING';
+    }
+
     const newRequest: LeaveRequest = {
       ...reqData,
       id: Math.random().toString(36).substr(2, 9),
-      teamLeadStatus: 'PENDING',
-      supervisorStatus: 'PENDING',
-      directorStatus: 'PENDING',
+      teamLeadStatus,
+      supervisorStatus,
+      directorStatus,
       finalStatus: 'PENDING',
       createdAt: new Date().toISOString()
     };
@@ -95,20 +140,25 @@ const App: React.FC = () => {
     setLeaveRequests(prev => prev.map(req => {
       if (req.id === requestId) {
         const updated = { ...req };
+        if (role === UserRole.TEAM_LEAD && updated.teamLeadStatus === 'PENDING') {
+           updated.teamLeadStatus = 'APPROVED';
+        } else if (role === UserRole.SUPERVISOR && updated.supervisorStatus === 'PENDING' && (updated.teamLeadStatus === 'APPROVED' || updated.teamLeadStatus === 'NOT_REQUIRED')) {
+           updated.supervisorStatus = 'APPROVED';
+        } else if (role === UserRole.DIRECTOR && updated.directorStatus === 'PENDING' && (updated.supervisorStatus === 'APPROVED' || updated.supervisorStatus === 'NOT_REQUIRED')) {
+           updated.directorStatus = 'APPROVED';
+        }
         
-        // Correct Sequence: Team Lead -> Supervisor -> Director
-        if (role === UserRole.TEAM_LEAD) updated.teamLeadStatus = 'APPROVED';
-        if (role === UserRole.SUPERVISOR) updated.supervisorStatus = 'APPROVED';
-        if (role === UserRole.DIRECTOR) updated.directorStatus = 'APPROVED';
-        
-        // Fast-track for high level mgmt
         if (role === UserRole.ADMIN || role === UserRole.TOP_MANAGEMENT) {
-          updated.teamLeadStatus = 'APPROVED';
-          updated.supervisorStatus = 'APPROVED';
-          updated.directorStatus = 'APPROVED';
+          if (updated.teamLeadStatus === 'PENDING') updated.teamLeadStatus = 'APPROVED';
+          if (updated.supervisorStatus === 'PENDING') updated.supervisorStatus = 'APPROVED';
+          if (updated.directorStatus === 'PENDING') updated.directorStatus = 'APPROVED';
         }
 
-        if (updated.teamLeadStatus === 'APPROVED' && updated.supervisorStatus === 'APPROVED' && updated.directorStatus === 'APPROVED') {
+        const tlOk = updated.teamLeadStatus === 'APPROVED' || updated.teamLeadStatus === 'NOT_REQUIRED';
+        const supOk = updated.supervisorStatus === 'APPROVED' || updated.supervisorStatus === 'NOT_REQUIRED';
+        const dirOk = updated.directorStatus === 'APPROVED' || updated.directorStatus === 'NOT_REQUIRED';
+
+        if (tlOk && supOk && dirOk) {
           updated.finalStatus = 'APPROVED';
           setAllEmployees(emps => emps.map(e => e.id === req.employeeId ? {...e, status: EmployeeStatus.LEAVE} : e));
         }
@@ -174,8 +224,8 @@ const App: React.FC = () => {
           </header>
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-            {activeTab === 'PORTAL' && <EmployeePortal employee={currentUser} onUpdateStatus={handleUpdateStatus} onRequestLeave={handleRequestLeave} />}
-            {activeTab === 'MANAGEMENT' && <ManagerPortal employees={allEmployees} projects={allProjects} currentUser={currentUser} />}
+            {activeTab === 'PORTAL' && <EmployeePortal employee={currentUser} onUpdateStatus={handleUpdateStatus} onRequestLeave={handleRequestLeave} attendanceRecords={attendanceRecords.filter(r => r.employeeId === currentUser.id)} />}
+            {activeTab === 'MANAGEMENT' && <ManagerPortal employees={allEmployees} projects={allProjects} currentUser={currentUser} attendanceRecords={attendanceRecords} />}
             {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={handleAddProject} onUpdateProject={handleUpdateProject} onDeleteProject={handleDeleteProject} currentUser={currentUser} />}
             {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={handleAddEmployee} onUpdateEmployee={handleUpdateEmployee} onDeleteEmployee={handleDeleteEmployee} currentUser={currentUser} />}
             {activeTab === 'REQUESTS' && <RequestManager requests={leaveRequests} userRole={currentUser.role} onApprove={handleApprove} onReject={handleReject} />}
