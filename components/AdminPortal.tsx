@@ -1,18 +1,16 @@
 
 import React, { useState } from 'react';
 import { Employee, UserRole, EmployeeStatus, Project } from '../types';
-// Added ShieldCheck to the imports to fix "Cannot find name 'ShieldCheck'" error
-import { UserPlus, Settings, Save, X, Briefcase, Key, Eye, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import { UserPlus, Settings, Save, X, Briefcase, Key, Eye, AlertCircle, ShieldCheck } from 'lucide-react';
 
 interface AdminPortalProps {
   onAddEmployee: (emp: Employee) => void;
   onUpdateEmployee: (emp: Employee) => void;
   employees: Employee[];
   projects: Project[];
-  onResetWorkforce: () => void;
 }
 
-const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmployee, employees, projects, onResetWorkforce }) => {
+const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmployee, employees, projects }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [formData, setFormData] = useState({
@@ -108,13 +106,6 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
         </div>
         <div className="flex space-x-4">
           <button 
-            onClick={onResetWorkforce}
-            className="px-6 py-3 border border-slate-200 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 flex items-center transition-all"
-            title="Emergency workforce reset"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" /> Restore Defaults
-          </button>
-          <button 
             onClick={openAddForm}
             className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 flex items-center transition-all"
           >
@@ -128,7 +119,7 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
         <div>
           <h4 className="font-bold text-amber-900 text-sm">Security Policy: Root Protection Active</h4>
           <p className="text-sm text-amber-800/80 leading-relaxed mt-1">
-            The master account (Jahanzaib Khan) is protected from deletion to prevent system lockouts. Other users can be deleted with one-click efficiency.
+            The master account (Jahanzaib Khan) is protected from deletion to prevent system lockouts. Other users can be managed with full administrative efficiency.
           </p>
         </div>
       </div>

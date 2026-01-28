@@ -1,11 +1,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee, EmployeeStatus, Project, UserRole, AttendanceRecord, DailyActivityLog } from '../types';
-import { PROJECTS } from '../constants';
-// Added CalendarCheck to the imports
-import { Users, Clock, AlertTriangle, Search, History, X, FileSpreadsheet, ClipboardList, Briefcase, Calendar, CalendarCheck } from 'lucide-react';
+import { Users, Clock, Search, FileSpreadsheet, Filter, Circle } from 'lucide-react';
 import StatCard from './StatCard';
 import ReportBuilder from './ReportBuilder';
+import { formatTime12h } from '../App';
 
 interface ManagerPortalProps {
   employees: Employee[];
@@ -15,6 +14,8 @@ interface ManagerPortalProps {
   dailyActivityLogs: DailyActivityLog[];
 }
 
+type LiveFilter = 'CLOCKED_IN' | 'CLOCKED_OUT' | 'ALL';
+
 const ManagerPortal: React.FC<ManagerPortalProps> = ({ 
   employees, 
   projects, 
@@ -23,243 +24,160 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
   dailyActivityLogs
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [projectFilter, setProjectFilter] = useState('ALL');
+  const [teamFilter, setTeamFilter] = useState('ALL');
+  const [liveFilter, setLiveFilter] = useState<LiveFilter>('CLOCKED_IN');
   const [showReportBuilder, setShowReportBuilder] = useState(false);
-  const [selectedTimelineUser, setSelectedTimelineUser] = useState<Employee | null>(null);
 
   const canBuildReport = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR].includes(currentUser.role);
 
   const visibleEmployees = useMemo(() => {
-    if (currentUser.role === UserRole.ADMIN) return employees;
-    if (currentUser.role === UserRole.DIRECTOR) {
-      return employees.filter(e => e.role === UserRole.TEAM_LEAD || e.role === UserRole.EMPLOYEE);
+    let list = [...employees];
+    if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.TOP_MANAGEMENT) {
+      if (currentUser.role === UserRole.DIRECTOR) {
+        list = list.filter(e => e.role === UserRole.TEAM_LEAD || e.role === UserRole.EMPLOYEE || e.role === UserRole.SUPERVISOR);
+      } else if (currentUser.role === UserRole.SUPERVISOR || currentUser.role === UserRole.TEAM_LEAD) {
+        list = list.filter(e => e.supervisorId === currentUser.id);
+      }
     }
-    if (currentUser.role === UserRole.TEAM_LEAD) {
-      return employees.filter(e => e.role === UserRole.EMPLOYEE);
-    }
-    if (currentUser.role === UserRole.SUPERVISOR) {
-      return employees.filter(e => e.supervisorId === currentUser.id);
-    }
-    return [];
-  }, [employees, currentUser]);
+    
+    return list.filter(e => {
+      const matchesSearch = e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.code.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesProject = projectFilter === 'ALL' ? true : e.activeProjectId === projectFilter;
+      const matchesTeam = teamFilter === 'ALL' ? true : e.supervisorId === teamFilter;
+      let matchesLive = true;
+      if (liveFilter === 'CLOCKED_IN') matchesLive = (e.status === EmployeeStatus.ACTIVE || e.status === EmployeeStatus.BREAK);
+      else if (liveFilter === 'CLOCKED_OUT') matchesLive = (e.status === EmployeeStatus.OFF || e.status === EmployeeStatus.LEAVE);
+      return matchesSearch && matchesProject && matchesTeam && matchesLive;
+    });
+  }, [employees, currentUser, searchTerm, projectFilter, teamFilter, liveFilter]);
 
   const stats = useMemo(() => {
     return {
-      active: visibleEmployees.filter(e => e.status === EmployeeStatus.ACTIVE).length,
-      break: visibleEmployees.filter(e => e.status === EmployeeStatus.BREAK).length,
-      late: visibleEmployees.filter(e => e.status === EmployeeStatus.ACTIVE && e.totalMinutesWorkedToday < 60).length,
-      leave: visibleEmployees.filter(e => e.status === EmployeeStatus.LEAVE).length,
+      active: employees.filter(e => e.status === EmployeeStatus.ACTIVE || e.status === EmployeeStatus.BREAK).length,
+      onBreak: employees.filter(e => e.status === EmployeeStatus.BREAK).length,
+      off: employees.filter(e => e.status === EmployeeStatus.OFF).length,
     };
-  }, [visibleEmployees]);
+  }, [employees]);
 
-  const timelineData = useMemo(() => {
-    if (!selectedTimelineUser) return [];
-    const days = [];
-    for (let i = 0; i < 30; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      
-      const dayLogs = dailyActivityLogs.filter(l => l.employeeId === selectedTimelineUser.id && l.date === dateStr);
-      const dayAttendance = attendanceRecords.filter(r => r.employeeId === selectedTimelineUser.id && r.timestamp.startsWith(dateStr));
-      
-      if (dayLogs.length > 0 || dayAttendance.length > 0) {
-        days.push({
-          date: dateStr,
-          logs: dayLogs,
-          attendance: dayAttendance
-        });
-      }
-    }
-    return days;
-  }, [selectedTimelineUser, dailyActivityLogs, attendanceRecords]);
+  const calculateLateDuration = (emp: Employee) => {
+    const njNowStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+    const clockIn = attendanceRecords.find(r => {
+      const rNJStr = new Date(r.timestamp).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+      return r.employeeId === emp.id && r.type === 'CLOCK_IN' && rNJStr === njNowStr;
+    });
+
+    if (!clockIn) return "00:00";
+
+    const [sh, sm] = emp.shift.start.split(':').map(Number);
+    const actualIn = new Date(clockIn.timestamp);
+    
+    // Construct shift start time on the same wall-clock day as actualIn in NJ
+    const actualInNJDate = new Date(actualIn.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const shiftStart = new Date(actualInNJDate);
+    shiftStart.setHours(sh, sm, 0, 0);
+
+    const diffMs = actualInNJDate.getTime() - shiftStart.getTime();
+    const diffMins = Math.abs(Math.floor(diffMs / 60000));
+    const h = Math.floor(diffMins / 60);
+    const m = diffMins % 60;
+    const timeFormatted = `${h}h ${m}m`;
+
+    if (diffMs > 60000) return `${timeFormatted} Late`; // More than 1 min late
+    if (diffMs < -60000) return `${timeFormatted} Early`; // More than 1 min early
+    return "On Time";
+  };
 
   return (
     <div className="space-y-8 pb-20">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-slate-900">Operations Control</h2>
+        <div>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Live Dashboard</h2>
+          <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">Operational Pulse (Eastern Time)</p>
+        </div>
         {canBuildReport && (
-          <button 
-            onClick={() => setShowReportBuilder(true)}
-            className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
-          >
+          <button onClick={() => setShowReportBuilder(true)} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center">
             <FileSpreadsheet size={18} className="mr-2" /> Report Center
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Active Staff" value={stats.active} icon={<Users size={24}/>} color="bg-emerald-500" />
-        <StatCard label="On Break" value={stats.break} icon={<Clock size={24}/>} color="bg-amber-500" />
-        <StatCard label="Critical" value={stats.late} icon={<AlertTriangle size={24}/>} color="bg-rose-500" />
-        <StatCard label="On Leave" value={stats.leave} icon={<CalendarCheck size={24}/>} color="bg-indigo-500" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <StatCard label="Clocked In" value={stats.active} icon={<Users size={24}/>} color="bg-emerald-500" />
+        <StatCard label="Live Breaks" value={stats.onBreak} icon={<Clock size={24}/>} color="bg-amber-500" />
+        <StatCard label="Clocked Out" value={stats.off} icon={<Circle size={24}/>} color="bg-slate-400" />
       </div>
 
-      <div className="bg-white rounded-3xl shadow-md border border-slate-100 overflow-hidden">
-        <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-          <h3 className="text-xl font-bold text-slate-900">Personnel Monitor</h3>
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input type="text" placeholder="Search staff..." className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+      <div className="bg-white rounded-[2.5rem] shadow-md border border-slate-200 overflow-hidden">
+        <div className="p-8 border-b border-slate-100 flex flex-col xl:flex-row justify-between items-center gap-6">
+          <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
+             <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                {(['CLOCKED_IN', 'CLOCKED_OUT', 'ALL'] as LiveFilter[]).map((f) => (
+                  <button key={f} onClick={() => setLiveFilter(f)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${liveFilter === f ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{f.replace('_', ' ')}</button>
+                ))}
+             </div>
+             <div className="relative w-full sm:w-64">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-4 h-4" />
+                <input type="text" placeholder="Search staff..." className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm font-bold text-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+             </div>
+          </div>
+          <div className="text-[10px] font-black uppercase text-indigo-400 tracking-[0.2em] flex items-center">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span>
+            Eastern Time Pulse Active
           </div>
         </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="bg-slate-50/50 text-slate-500 text-[10px] uppercase font-black tracking-widest">
+            <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-100">
               <tr>
-                <th className="px-8 py-5">Staff Identity</th>
-                <th className="px-8 py-5">Daily Yield</th>
-                <th className="px-8 py-5">OT Perms</th>
-                <th className="px-8 py-5">Live State</th>
-                <th className="px-8 py-5 text-right">360 View</th>
+                <th className="px-8 py-5">Staff Member</th>
+                <th className="px-8 py-5">Live Status</th>
+                <th className="px-8 py-5">Clock In Time</th>
+                <th className="px-8 py-5">Late Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {visibleEmployees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map(emp => (
-                <tr key={emp.id} className="hover:bg-slate-50/50 transition-all group">
-                  <td className="px-8 py-5">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-bold text-sm">{emp.name.charAt(0)}</div>
-                      <div><div className="font-bold text-slate-900">{emp.name}</div><div className="text-[10px] text-slate-400 font-bold uppercase">{emp.role.replace('_', ' ')}</div></div>
-                    </div>
-                  </td>
-                  <td className="px-8 py-5"><span className="text-sm font-black text-slate-900">{Math.floor(emp.totalMinutesWorkedToday / 60)}h {emp.totalMinutesWorkedToday % 60}m</span></td>
-                  <td className="px-8 py-5">
-                    {emp.otEnabled ? (
-                      <span className="text-[10px] font-black text-emerald-600 uppercase bg-emerald-50 px-2 py-1 rounded border border-emerald-100">Allowed</span>
-                    ) : (
-                      <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-50 px-2 py-1 rounded border border-slate-100">Standard</span>
-                    )}
-                  </td>
-                  <td className="px-8 py-5">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                      emp.status === EmployeeStatus.ACTIVE ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                      emp.status === EmployeeStatus.BREAK ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                      'bg-slate-50 text-slate-400 border-slate-100'
-                    }`}>{emp.status}</span>
-                  </td>
-                  <td className="px-8 py-5 text-right">
-                    <button 
-                      onClick={() => setSelectedTimelineUser(emp)} 
-                      className="p-3 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-100 hover:shadow-sm transition-all flex items-center ml-auto"
-                    >
-                      <History size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {visibleEmployees.length === 0 ? (
+                <tr><td colSpan={4} className="px-8 py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">No matching personnel found</td></tr>
+              ) : (
+                visibleEmployees.map(emp => {
+                  const njStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+                  const clockIn = attendanceRecords.find(r => new Date(r.timestamp).toLocaleDateString("en-US", { timeZone: "America/New_York" }) === njStr && r.employeeId === emp.id && r.type === 'CLOCK_IN');
+                  const late = calculateLateDuration(emp);
+                  return (
+                    <tr key={emp.id} className="hover:bg-slate-50/50 transition-all group">
+                      <td className="px-8 py-5">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-bold text-xs shadow-sm">{emp.name.charAt(0)}</div>
+                          <div>
+                            <div className="font-bold text-slate-900 leading-tight">{emp.name}</div>
+                            <div className="text-[9px] text-slate-400 font-black uppercase tracking-widest">{emp.code} • {emp.role.replace('_', ' ')}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border ${
+                          emp.status === EmployeeStatus.ACTIVE ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                          emp.status === EmployeeStatus.BREAK ? 'bg-amber-50 text-amber-600 border-amber-100' : 
+                          'bg-slate-50 text-slate-400 border-slate-100'
+                        }`}>{emp.status}</span>
+                      </td>
+                      <td className="px-8 py-5 text-sm font-black text-slate-700">{clockIn ? formatTime12h(clockIn.timestamp) : '--:--'}</td>
+                      <td className="px-8 py-5">
+                        <span className={`text-sm font-black tracking-tighter ${late.includes('Late') ? 'text-rose-500' : late.includes('Early') ? 'text-indigo-500' : 'text-slate-300'}`}>
+                          {late}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
-
-      {showReportBuilder && (
-        <ReportBuilder 
-          employees={employees}
-          projects={projects}
-          attendanceRecords={attendanceRecords}
-          onClose={() => setShowReportBuilder(false)}
-        />
-      )}
-
-      {selectedTimelineUser && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-4xl h-full max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100 font-bold text-xl">
-                  {selectedTimelineUser.name.charAt(0)}
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black text-slate-900 leading-tight">Staff 360: {selectedTimelineUser.name}</h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{selectedTimelineUser.code} • Daily Activity Lifecycle</p>
-                </div>
-              </div>
-              <button onClick={() => setSelectedTimelineUser(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-rose-500 hover:border-rose-100 transition-all">
-                <X size={24} />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-slate-50/30">
-              {timelineData.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 opacity-50">
-                   <Calendar size={64} />
-                   <p className="font-bold text-sm uppercase tracking-widest">No activity found in the last 30 days</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-6">
-                  {timelineData.map(day => (
-                    <div key={day.date} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all space-y-6">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="flex items-center space-x-3">
-                           <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
-                             <Calendar size={20} />
-                           </div>
-                           <div>
-                             <h4 className="font-black text-slate-900">{new Date(day.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</h4>
-                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{day.date}</p>
-                           </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {day.logs.length > 0 && (
-                            <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase border border-emerald-100">Ledger Logged</span>
-                          )}
-                          <span className="px-3 py-1 bg-slate-50 text-slate-600 rounded-full text-[10px] font-black uppercase border border-slate-100">
-                            {day.attendance.length} Logs
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center">
-                             <Clock size={12} className="mr-2" /> System Attendance
-                           </p>
-                           <div className="space-y-2">
-                             {day.attendance.map(r => (
-                               <div key={r.id} className="flex justify-between items-center p-3 bg-slate-50/50 rounded-xl border border-slate-100">
-                                 <span className="text-[11px] font-bold text-slate-600 uppercase">{r.type.replace('_', ' ')}</span>
-                                 <span className="text-[11px] font-black text-slate-900">{new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                               </div>
-                             ))}
-                           </div>
-                        </div>
-
-                        <div className="space-y-3">
-                           <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center">
-                             <ClipboardList size={12} className="mr-2" /> Manual Ledger Entry
-                           </p>
-                           {day.logs.length === 0 ? (
-                             <div className="p-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-center">
-                               <p className="text-[10px] font-bold text-slate-400 italic">No manual note provided for this date</p>
-                             </div>
-                           ) : (
-                             day.logs.map(log => (
-                               <div key={log.id} className="space-y-4">
-                                 <div className="p-5 bg-indigo-50/30 rounded-2xl border border-indigo-100 italic">
-                                   <p className="text-sm text-slate-700 font-medium leading-relaxed">"{log.note}"</p>
-                                 </div>
-                                 <div className="flex flex-wrap gap-2">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase w-full mb-1">Projects Tagged:</p>
-                                    {log.projectIds.map(pid => (
-                                      <div key={pid} className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-600">
-                                        <Briefcase size={10} className="mr-2 text-indigo-400" />
-                                        {projects.find(p => p.id === pid)?.name}
-                                      </div>
-                                    ))}
-                                 </div>
-                               </div>
-                             ))
-                           )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {showReportBuilder && <ReportBuilder employees={employees} projects={projects} attendanceRecords={attendanceRecords} onClose={() => setShowReportBuilder(false)} />}
     </div>
   );
 };
