@@ -1,25 +1,28 @@
 
 import React, { useState } from 'react';
-import { Clock, Lock, User, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Clock, Lock, User, ShieldCheck, RefreshCw, Cloud, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import { Employee } from '../types';
 
 interface LoginProps {
   onLogin: (user: Employee) => void;
   employees: Employee[];
+  syncId: string;
+  onSetSyncId: (id: string) => void;
+  isSyncing: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, employees }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, employees, syncId, onSetSyncId, isSyncing }) => {
   const [staffName, setStaffName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showCloudInput, setShowCloudInput] = useState(false);
+  const [tempSyncId, setTempSyncId] = useState('');
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // Case-insensitive full name matching
     const cleanName = staffName.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    // Match strictly against emp.name
     const user = employees.find(emp => 
       emp.name.toLowerCase() === cleanName && 
       emp.password === cleanPassword
@@ -28,7 +31,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees }) => {
     if (user) {
       onLogin(user);
     } else {
-      setError('Invalid credentials. Please enter your full Staff Name exactly as registered.');
+      setError('Invalid credentials. If you are a new user, please "Connect Cloud" below first.');
+    }
+  };
+
+  const handleConnectCloud = () => {
+    if (tempSyncId.trim().startsWith('CF-')) {
+      onSetSyncId(tempSyncId.trim().toUpperCase());
+      setShowCloudInput(false);
+      setTempSyncId('');
+    } else {
+      alert("Please enter a valid Company Sync Key starting with 'CF-'");
     }
   };
 
@@ -51,6 +64,18 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees }) => {
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">ChronosForce</h1>
           <p className="text-slate-500 font-medium">Workforce Intelligence Hub</p>
         </div>
+
+        {syncId ? (
+          <div className="flex items-center justify-center space-x-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full mx-auto w-fit animate-in fade-in">
+             <CheckCircle2 size={12} className="text-emerald-500" />
+             <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Linked to Company Cloud</span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center space-x-2 px-4 py-2 bg-amber-50 border border-amber-100 rounded-full mx-auto w-fit">
+             <Cloud size={12} className="text-amber-500" />
+             <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Local Mode - Connect Cloud to Login</span>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-6">
           <div className="space-y-4">
@@ -88,22 +113,47 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees }) => {
 
           <button
             type="submit"
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
+            disabled={isSyncing}
+            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-[0.98] flex items-center justify-center space-x-2 disabled:opacity-50"
           >
-            <span>Log In</span>
+            {isSyncing ? <RefreshCw className="animate-spin w-5 h-5" /> : <span>Log In</span>}
           </button>
         </form>
 
         <div className="pt-6 border-t border-slate-100 text-center space-y-4">
-          <div className="flex items-center justify-center space-x-2 text-indigo-600">
+          {!showCloudInput ? (
+            <button 
+              onClick={() => setShowCloudInput(true)}
+              className="flex items-center justify-center mx-auto space-x-2 text-indigo-600 hover:text-indigo-800 transition-colors"
+            >
+              <Cloud size={16} />
+              <span className="text-[11px] font-black uppercase tracking-widest">Connect to Company Cloud</span>
+            </button>
+          ) : (
+            <div className="space-y-3 animate-in slide-in-from-bottom-2">
+               <div className="relative">
+                  <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input 
+                    type="text" 
+                    placeholder="Enter Sync Key (CF-XXXX)" 
+                    className="w-full pl-10 pr-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl outline-none text-sm font-bold uppercase tracking-widest"
+                    value={tempSyncId}
+                    onChange={(e) => setTempSyncId(e.target.value)}
+                  />
+               </div>
+               <div className="flex space-x-2">
+                  <button onClick={handleConnectCloud} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all">Link Company</button>
+                  <button onClick={() => setShowCloudInput(false)} className="px-4 py-3 text-slate-400 font-bold text-xs uppercase tracking-widest">Cancel</button>
+               </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-center space-x-2 text-slate-400 opacity-50">
             <ShieldCheck size={16} />
             <p className="text-[10px] font-black uppercase tracking-widest">
               Secured Enterprise Access
             </p>
           </div>
-          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed px-4">
-            Login is case-insensitive. Full Name required.
-          </p>
           <button 
             onClick={handleResetData}
             className="flex items-center justify-center mx-auto text-[9px] font-black uppercase tracking-widest text-slate-300 hover:text-indigo-500 transition-colors mt-2"

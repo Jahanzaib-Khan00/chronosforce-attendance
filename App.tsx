@@ -25,7 +25,7 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_PASSWORD = 'password123';
-const SYNC_INTERVAL = 10000; // 10 seconds
+const SYNC_INTERVAL = 10000;
 
 export const getNJTime = () => new Date();
 
@@ -41,10 +41,12 @@ export const formatTime12h = (date: Date | string) => {
 };
 
 const App: React.FC = () => {
-  // --- STATE ---
   const [syncId, setSyncId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.SYNC_ID) || '');
   const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [activeTab, setActiveTab] = useState<'PORTAL' | 'MANAGEMENT' | 'ADMIN' | 'REQUESTS' | 'PROJECTS' | 'EMPLOYEES'>('PORTAL');
+  const [showMessageCenter, setShowMessageCenter] = useState(false);
+  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
 
   const [allEmployees, setAllEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
@@ -81,12 +83,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : {};
   });
 
-  const [currentUser, setCurrentUser] = useState<Employee | null>(null);
-  const [activeTab, setActiveTab] = useState<'PORTAL' | 'MANAGEMENT' | 'ADMIN' | 'REQUESTS' | 'PROJECTS' | 'EMPLOYEES'>('PORTAL');
-  const [showMessageCenter, setShowMessageCenter] = useState(false);
-  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
-
-  // --- CLOUD SYNC ENGINE ---
   const syncInProgress = useRef(false);
 
   const fetchFromCloud = async (id: string) => {
@@ -94,7 +90,6 @@ const App: React.FC = () => {
     try {
       syncInProgress.current = true;
       setIsSyncing(true);
-      // Use a free KV store (kvdb.io is great for simple JSON blobs)
       const res = await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`);
       if (res.ok) {
         const cloudData = await res.json();
@@ -105,7 +100,6 @@ const App: React.FC = () => {
           if (cloudData.requests) setLeaveRequests(cloudData.requests);
           if (cloudData.messages) setMessages(cloudData.messages);
           if (cloudData.logs) setDailyActivityLogs(cloudData.logs);
-          setLastSyncTime(new Date().toISOString());
         }
       }
     } catch (e) {
@@ -140,7 +134,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Poll cloud for updates
   useEffect(() => {
     if (!syncId) return;
     fetchFromCloud(syncId);
@@ -148,7 +141,6 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [syncId]);
 
-  // Push local changes when they happen (throttled)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (syncId) pushToCloud(syncId);
@@ -156,7 +148,6 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
 
-  // Local Storage persistence as fallback
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(allEmployees));
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects));
@@ -167,7 +158,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SYNC_ID, syncId);
   }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
 
-  // --- LOGIC ---
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
     if (!currentUser) return;
     const ts = new Date().toISOString();
@@ -198,22 +188,18 @@ const App: React.FC = () => {
 
   const handleLogin = (user: Employee) => {
     const njToday = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-    
-    // Find last status for today
     const todaysRecords = attendanceRecords.filter(r => {
       const rNJ = new Date(r.timestamp).toLocaleDateString("en-US", { timeZone: "America/New_York" });
       return r.employeeId === user.id && rNJ === njToday;
     }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     const lastRecord = todaysRecords.length > 0 ? todaysRecords[todaysRecords.length - 1] : null;
-
     let synchronizedUser = { ...user };
     
     if (!lastRecord || lastRecord.type === 'CLOCK_OUT') {
       synchronizedUser.status = EmployeeStatus.OFF;
       setShowClockInPrompt(true);
     } else {
-      // User was already clocked in, resume their state
       if (lastRecord.type === 'CLOCK_IN' || lastRecord.type === 'BREAK_END' || lastRecord.type === 'PROJECT_CHANGE') {
         synchronizedUser.status = EmployeeStatus.ACTIVE;
       } else if (lastRecord.type === 'BREAK_START') {
@@ -245,7 +231,20 @@ const App: React.FC = () => {
 
   const hasMgmtAccess = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser?.role || UserRole.EMPLOYEE);
 
-  if (!currentUser) return <Login onLogin={handleLogin} employees={allEmployees} />;
+  if (!currentUser) {
+    return (
+      <Login 
+        onLogin={handleLogin} 
+        employees={allEmployees} 
+        syncId={syncId}
+        onSetSyncId={(id) => {
+          setSyncId(id);
+          fetchFromCloud(id);
+        }}
+        isSyncing={isSyncing}
+      />
+    );
+  }
 
   if (currentUser.password === DEFAULT_PASSWORD) {
     return <PasswordChange user={currentUser} onUpdatePassword={(p) => {

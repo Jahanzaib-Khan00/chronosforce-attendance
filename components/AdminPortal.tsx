@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Employee, UserRole, EmployeeStatus, Project } from '../types';
-import { UserPlus, Settings, Save, X, Briefcase, Key, Eye, AlertCircle, ShieldCheck, Cloud, RefreshCw, Copy, Check } from 'lucide-react';
+import { UserPlus, Settings, Save, X, Briefcase, Key, Eye, AlertCircle, ShieldCheck, Cloud, RefreshCw, Copy, Check, Users as UsersIcon } from 'lucide-react';
 
 interface AdminPortalProps {
   onAddEmployee: (emp: Employee) => void;
@@ -111,10 +111,15 @@ const AdminPortal: React.FC<AdminPortalProps> = ({ onAddEmployee, onUpdateEmploy
                 {syncId && <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">Live Linked</span>}
              </div>
              
-             <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
-                <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                  Enter your <strong>Company Sync Key</strong> below. Use the same key on multiple laptops to share users, attendance, and messages in real-time.
-                </p>
+             <div className="p-6 bg-indigo-50 rounded-3xl border border-indigo-100 space-y-4">
+                <div className="flex items-start space-x-3">
+                   <div className="bg-indigo-600 p-2 rounded-lg text-white mt-1"><UsersIcon size={14}/></div>
+                   <div>
+                      <p className="text-xs text-indigo-900 font-black uppercase tracking-tight">Share with Team</p>
+                      <p className="text-[10px] text-indigo-700 font-medium leading-relaxed">Give this key to your employees so they can link their laptops to your company database on the login screen.</p>
+                   </div>
+                </div>
+
                 <div className="flex gap-2">
                    <input 
                     type="text" 
