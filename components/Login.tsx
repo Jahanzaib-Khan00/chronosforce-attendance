@@ -13,7 +13,8 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBackendUrl, isSyncing, dbReady }) => {
-  const [phase, setPhase] = useState<'CHOICE' | 'SETUP' | 'STAFF'>(backendUrl ? 'STAFF' : 'CHOICE');
+  // If dbReady is already true (hardcoded backend connected), go straight to staff login
+  const [phase, setPhase] = useState<'CHOICE' | 'SETUP' | 'STAFF'>(dbReady ? 'STAFF' : (backendUrl ? 'SETUP' : 'CHOICE'));
   const [tempUrl, setTempUrl] = useState(backendUrl);
   const [staffName, setStaffName] = useState('');
   const [password, setPassword] = useState('');
@@ -32,7 +33,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
     setError('');
     const success = await onSetBackendUrl(tempUrl);
     if (!success) {
-      setError("Could not reach backend. Ensure your script is deployed for 'Anyone'.");
+      setError("Connection failure. Ensure your Google Script is deployed as 'Web App' and access is set to 'Anyone'.");
     }
   };
 
@@ -49,7 +50,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
     if (user) {
       onLogin(user);
     } else {
-      setError('Staff member not found or password incorrect.');
+      setError('Staff member not found or password incorrect. (Check your Sheet if you just reset it)');
     }
   };
 
@@ -64,7 +65,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
             <Clock className="text-white w-8 h-8" />
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tighter">ChronosForce</h1>
-          <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em]">Persistent Cloud Terminal</p>
+          <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em]">Operational Neural Link</p>
         </div>
 
         {phase === 'CHOICE' ? (
@@ -74,30 +75,30 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
               className="w-full p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all flex items-center justify-between group shadow-xl"
             >
               <div className="text-left">
-                <p className="font-black text-[9px] uppercase tracking-widest text-indigo-400 mb-1">Configuration Required</p>
-                <p className="text-lg font-bold">Connect My Google Sheet</p>
+                <p className="font-black text-[9px] uppercase tracking-widest text-indigo-400 mb-1">Infrastructure Link</p>
+                <p className="text-lg font-bold">Configure Google Backend</p>
               </div>
               <Database className="group-hover:scale-110 transition-transform text-indigo-400" size={28} />
             </button>
             <p className="text-center text-[10px] text-slate-400 font-medium px-6">
-              You must link your organization's Google Apps Script to enable cloud persistence across all devices.
+              Link your private Google Sheet backend to synchronize operations across all staff devices.
             </p>
           </div>
         ) : phase === 'SETUP' ? (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
              <div className="p-5 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-3">
                 <h4 className="font-black text-xs text-indigo-900 uppercase tracking-widest flex items-center">
-                   <Zap size={14} className="mr-2" /> Quick Setup Steps
+                   <Zap size={14} className="mr-2" /> Connection Setup
                 </h4>
                 <ol className="text-[10px] text-indigo-800 space-y-1.5 font-medium list-decimal pl-4">
-                   <li>Create a new Apps Script at script.google.com</li>
-                   <li>Paste the Chronos Backend code and Deploy.</li>
-                   <li>Set access to <strong>"Anyone"</strong> and copy the URL.</li>
+                   <li>Open your Google Sheet script editor.</li>
+                   <li>Deploy as a <strong>Web App</strong>.</li>
+                   <li>Set "Who has access" to <strong>Anyone</strong>.</li>
                 </ol>
              </div>
              <form onSubmit={handleConnect} className="space-y-4">
                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Apps Script Deployment URL</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Deployment URL</label>
                   <div className="relative">
                     <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                     <input 
@@ -114,17 +115,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
                 disabled={isSyncing}
                 className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center disabled:opacity-50"
                >
-                 {isSyncing ? <RefreshCw className="animate-spin mr-2" /> : 'Establish Neural Link'}
+                 {isSyncing ? <RefreshCw className="animate-spin mr-2" /> : 'Synchronize Database'}
                </button>
-               <button onClick={() => setPhase('CHOICE')} className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+               <button onClick={() => setPhase('CHOICE')} className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600">Back to choice</button>
              </form>
           </div>
         ) : (
           <form onSubmit={handleLogin} className="space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-center">
-               <div className="flex items-center space-x-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full">
+               <div className="flex items-center space-x-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full animate-pulse">
                   <Globe size={12} className="text-emerald-500" />
-                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Connected to Sheets Cloud</span>
+                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Connected to Cloud Backend</span>
                </div>
             </div>
 
@@ -160,7 +161,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
               disabled={isSyncing}
               className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-2xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
             >
-              {isSyncing ? <RefreshCw className="animate-spin w-5 h-5" /> : <span>Authorize Terminal Access</span>}
+              {isSyncing ? <RefreshCw className="animate-spin w-5 h-5" /> : <span>Authorize Terminal Entry</span>}
             </button>
 
             <div className="pt-4 text-center">
@@ -169,7 +170,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
                 onClick={() => { localStorage.clear(); window.location.reload(); }}
                 className="text-[9px] font-black uppercase text-slate-400 hover:text-rose-500 transition-colors"
                >
-                 Change Cloud Backend
+                 Reconfigure Connection
                </button>
             </div>
           </form>
@@ -184,7 +185,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBack
         <div className="pt-6 text-center">
           <div className="flex items-center justify-center space-x-2 text-slate-300 opacity-60">
             <ShieldCheck size={16} />
-            <p className="text-[9px] font-black uppercase tracking-widest">Private Infrastructure Security</p>
+            <p className="text-[9px] font-black uppercase tracking-widest">End-to-End Google Cloud Integrity</p>
           </div>
         </div>
       </div>

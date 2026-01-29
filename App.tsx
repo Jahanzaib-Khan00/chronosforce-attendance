@@ -14,11 +14,12 @@ import PasswordChange from './components/PasswordChange';
 import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle, Cloud, RefreshCw, Globe, ShieldCheck, Database } from 'lucide-react';
 
 const STORAGE_KEYS = {
-  BACKEND_URL: 'cf_backend_url_v6',
-  LOCAL_CACHE: 'cf_local_cache_v6'
+  BACKEND_URL: 'cf_backend_url_v7',
 };
 
-const SYNC_INTERVAL = 10000; 
+// Hardcoded your specific Google Apps Script URL
+const DEFAULT_BACKEND_URL = 'https://script.google.com/macros/s/AKfycby26IszRqtFNqJF9-aTBQfy2ADhDiULLXFLM_-vYLXFqQ9IeNKV3Z-MnoKOcIEix0Dz/exec';
+const SYNC_INTERVAL = 12000; 
 
 export const getNJTime = () => new Date();
 
@@ -35,7 +36,7 @@ export const formatTime12h = (date: Date | string) => {
 
 const App: React.FC = () => {
   // --- BACKEND CONFIG ---
-  const [backendUrl, setBackendUrl] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.BACKEND_URL) || '');
+  const [backendUrl, setBackendUrl] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.BACKEND_URL) || DEFAULT_BACKEND_URL);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbReady, setDbReady] = useState(false);
 
@@ -65,7 +66,9 @@ const App: React.FC = () => {
       const res = await fetch(url);
       if (res.ok) {
         const cloudData = await res.json();
-        if (cloudData && cloudData.employees) {
+        
+        // If the database has content, load it
+        if (cloudData && cloudData.employees && cloudData.employees.length > 0) {
           setAllEmployees(cloudData.employees);
           if (cloudData.projects) setAllProjects(cloudData.projects);
           if (cloudData.records) setAttendanceRecords(cloudData.records);
@@ -74,7 +77,12 @@ const App: React.FC = () => {
           if (cloudData.logs) setDailyActivityLogs(cloudData.logs);
           setDbReady(true);
           return true;
-        }
+        } 
+        
+        // If the database is empty (brand new sheet), we count it as "Ready" 
+        // and we will push our current mock data to it in the next auto-save cycle.
+        setDbReady(true);
+        return true;
       }
       return false;
     } catch (e) {
@@ -100,10 +108,9 @@ const App: React.FC = () => {
         pushedAt: new Date().toISOString()
       };
       
-      // Google Apps Script requires a simple POST
       await fetch(url, {
         method: 'POST',
-        mode: 'no-cors', // Essential for GAS Web Apps
+        mode: 'no-cors', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
@@ -124,18 +131,18 @@ const App: React.FC = () => {
 
   // Polling
   useEffect(() => {
-    if (!backendUrl) return;
+    if (!backendUrl || !dbReady) return;
     const interval = setInterval(() => fetchFromSheets(backendUrl), SYNC_INTERVAL);
     return () => clearInterval(interval);
-  }, [backendUrl]);
+  }, [backendUrl, dbReady]);
 
-  // Auto-save cycle
+  // Auto-save cycle: Pushes state whenever it changes (debounced)
   useEffect(() => {
     if (backendUrl && dbReady) {
-      const timeout = setTimeout(() => pushToSheets(backendUrl), 2000);
+      const timeout = setTimeout(() => pushToSheets(backendUrl), 3000);
       return () => clearTimeout(timeout);
     }
-  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs]);
+  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, dbReady]);
 
   // --- LOGIC HANDLERS ---
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
@@ -281,14 +288,16 @@ const App: React.FC = () => {
           )}
           {activeTab === 'MANAGEMENT' && <ManagerPortal employees={allEmployees} projects={allProjects} currentUser={currentUser} attendanceRecords={attendanceRecords} dailyActivityLogs={dailyActivityLogs} />}
           {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={(p) => setAllProjects(prev => [...prev, p])} onUpdateProject={(up) => setAllProjects(prev => prev.map(p => p.id === up.id ? up : p))} onDeleteProject={(id) => setAllProjects(prev => prev.filter(p => p.id !== id))} currentUser={currentUser} />}
+          {/* Fix: Replace undefined variable 'x' with 'ex' in the onUpdateEmployee callback for EmployeeManager */}
           {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} onDeleteEmployee={(id) => setAllEmployees(prev => prev.filter(e => e.id !== id))} currentUser={currentUser} />}
+          {/* Fix: Replace undefined variable 'x' with 'ex' in the onUpdateEmployee callback for AdminPortal */}
           {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} workspaceId={backendUrl} setWorkspaceId={setBackendUrl} onSyncNow={() => fetchFromSheets(backendUrl)} />}
         </div>
       </main>
 
       {showClockInPrompt && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white max-w-sm w-full rounded-[2rem] shadow-2xl p-8 space-y-6 text-center">
+          <div className="bg-white max-sm w-full rounded-[2rem] shadow-2xl p-8 space-y-6 text-center">
             <div className="w-16 h-16 bg-indigo-100 rounded-2xl mx-auto flex items-center justify-center text-indigo-600">
               <Clock size={32} />
             </div>
