@@ -1,44 +1,40 @@
 
 import React, { useState, useEffect } from 'react';
-import { Clock, Lock, User, ShieldCheck, RefreshCw, Cloud, Link as LinkIcon, CheckCircle2, Globe, ArrowRight, Zap, PlusCircle } from 'lucide-react';
+import { Clock, Lock, User, ShieldCheck, RefreshCw, Cloud, Link as LinkIcon, CheckCircle2, Globe, ArrowRight, Zap, PlusCircle, Database, ExternalLink } from 'lucide-react';
 import { Employee } from '../types';
 
 interface LoginProps {
   onLogin: (user: Employee) => void;
   employees: Employee[];
-  workspaceId: string;
-  onSetWorkspaceId: (id: string) => Promise<any>;
+  backendUrl: string;
+  onSetBackendUrl: (url: string) => Promise<any>;
   isSyncing: boolean;
   dbReady: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWorkspaceId, isSyncing, dbReady }) => {
-  const [phase, setPhase] = useState<'CHOICE' | 'JOIN' | 'STAFF'>(workspaceId ? 'STAFF' : 'CHOICE');
-  const [tempWorkspaceId, setTempWorkspaceId] = useState('');
+const Login: React.FC<LoginProps> = ({ onLogin, employees, backendUrl, onSetBackendUrl, isSyncing, dbReady }) => {
+  const [phase, setPhase] = useState<'CHOICE' | 'SETUP' | 'STAFF'>(backendUrl ? 'STAFF' : 'CHOICE');
+  const [tempUrl, setTempUrl] = useState(backendUrl);
   const [staffName, setStaffName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleStartNew = async () => {
-    setError('');
-    const newId = 'CF-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-    await onSetWorkspaceId(newId);
-  };
-
-  const handleJoinExisting = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const key = tempWorkspaceId.trim().toUpperCase();
-    if (!key.startsWith('CF-')) {
-      setError("Please enter a valid Company Code (starting with CF-).");
-      return;
-    }
-    setError('');
-    await onSetWorkspaceId(key);
-  };
-
   useEffect(() => {
     if (dbReady) setPhase('STAFF');
   }, [dbReady]);
+
+  const handleConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempUrl.includes('script.google.com')) {
+      setError("Please enter a valid Google Apps Script Web App URL.");
+      return;
+    }
+    setError('');
+    const success = await onSetBackendUrl(tempUrl);
+    if (!success) {
+      setError("Could not reach backend. Ensure your script is deployed for 'Anyone'.");
+    }
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
     if (user) {
       onLogin(user);
     } else {
-      setError('Credentials incorrect. Try "Switch Workspace" if you are on the wrong team.');
+      setError('Staff member not found or password incorrect.');
     }
   };
 
@@ -61,54 +57,55 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
     <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6 relative overflow-hidden">
       <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,#1e1b4b_0%,#0f172a_100%)]"></div>
       
-      <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl border border-white/10 p-10 space-y-8 relative z-10 animate-in zoom-in-95 duration-500">
+      <div className="w-full max-w-lg bg-white rounded-[3rem] shadow-2xl border border-white/10 p-10 space-y-8 relative z-10 animate-in zoom-in-95 duration-500">
         
         <div className="text-center space-y-2">
-          <div className="inline-flex w-20 h-20 bg-indigo-600 rounded-[2rem] items-center justify-center shadow-2xl shadow-indigo-500/30 mb-4 animate-pulse">
-            <Clock className="text-white w-10 h-10" />
+          <div className="inline-flex w-16 h-16 bg-indigo-600 rounded-2xl items-center justify-center shadow-2xl shadow-indigo-500/30 mb-4">
+            <Clock className="text-white w-8 h-8" />
           </div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tighter">ChronosForce</h1>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.3em]">Operational Neural Link</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tighter">ChronosForce</h1>
+          <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em]">Persistent Cloud Terminal</p>
         </div>
 
         {phase === 'CHOICE' ? (
           <div className="space-y-4 animate-in slide-in-from-bottom-6">
             <button 
-              onClick={handleStartNew}
-              disabled={isSyncing}
+              onClick={() => setPhase('SETUP')}
               className="w-full p-6 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all flex items-center justify-between group shadow-xl"
             >
               <div className="text-left">
-                <p className="font-black text-xs uppercase tracking-widest text-indigo-400 mb-1">Manager / Owner</p>
-                <p className="text-lg font-bold">Start New Organization</p>
+                <p className="font-black text-[9px] uppercase tracking-widest text-indigo-400 mb-1">Configuration Required</p>
+                <p className="text-lg font-bold">Connect My Google Sheet</p>
               </div>
-              <PlusCircle className="group-hover:rotate-90 transition-transform text-indigo-400" size={28} />
+              <Database className="group-hover:scale-110 transition-transform text-indigo-400" size={28} />
             </button>
-
-            <button 
-              onClick={() => setPhase('JOIN')}
-              className="w-full p-6 bg-white border border-slate-200 text-slate-900 rounded-3xl hover:bg-slate-50 transition-all flex items-center justify-between group"
-            >
-              <div className="text-left">
-                <p className="font-black text-xs uppercase tracking-widest text-slate-400 mb-1">Staff / Employee</p>
-                <p className="text-lg font-bold">Join Existing Team</p>
-              </div>
-              <ArrowRight className="group-hover:translate-x-2 transition-transform text-slate-400" size={28} />
-            </button>
+            <p className="text-center text-[10px] text-slate-400 font-medium px-6">
+              You must link your organization's Google Apps Script to enable cloud persistence across all devices.
+            </p>
           </div>
-        ) : phase === 'JOIN' ? (
+        ) : phase === 'SETUP' ? (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
-             <form onSubmit={handleJoinExisting} className="space-y-4">
+             <div className="p-5 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-3">
+                <h4 className="font-black text-xs text-indigo-900 uppercase tracking-widest flex items-center">
+                   <Zap size={14} className="mr-2" /> Quick Setup Steps
+                </h4>
+                <ol className="text-[10px] text-indigo-800 space-y-1.5 font-medium list-decimal pl-4">
+                   <li>Create a new Apps Script at script.google.com</li>
+                   <li>Paste the Chronos Backend code and Deploy.</li>
+                   <li>Set access to <strong>"Anyone"</strong> and copy the URL.</li>
+                </ol>
+             </div>
+             <form onSubmit={handleConnect} className="space-y-4">
                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Enter Organization Code</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Apps Script Deployment URL</label>
                   <div className="relative">
-                    <Zap className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                    <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                     <input 
                       type="text" 
-                      placeholder="e.g. CF-91XJ2" 
-                      className="w-full pl-12 pr-4 py-5 bg-slate-50 border border-slate-200 rounded-3xl outline-none font-black text-lg tracking-widest uppercase focus:ring-2 focus:ring-indigo-500 transition-all"
-                      value={tempWorkspaceId}
-                      onChange={(e) => setTempWorkspaceId(e.target.value)}
+                      placeholder="https://script.google.com/macros/s/.../exec" 
+                      className="w-full pl-12 pr-4 py-5 bg-slate-50 border border-slate-200 rounded-3xl outline-none font-medium text-sm focus:ring-2 focus:ring-indigo-500 transition-all"
+                      value={tempUrl}
+                      onChange={(e) => setTempUrl(e.target.value)}
                     />
                   </div>
                </div>
@@ -117,7 +114,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
                 disabled={isSyncing}
                 className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center disabled:opacity-50"
                >
-                 {isSyncing ? <RefreshCw className="animate-spin mr-2" /> : 'Connect To Cloud'}
+                 {isSyncing ? <RefreshCw className="animate-spin mr-2" /> : 'Establish Neural Link'}
                </button>
                <button onClick={() => setPhase('CHOICE')} className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
              </form>
@@ -125,9 +122,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
         ) : (
           <form onSubmit={handleLogin} className="space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-center">
-               <div className="flex items-center space-x-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full animate-bounce-slow">
+               <div className="flex items-center space-x-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full">
                   <Globe size={12} className="text-emerald-500" />
-                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Active Link: {workspaceId}</span>
+                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Connected to Sheets Cloud</span>
                </div>
             </div>
 
@@ -163,7 +160,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
               disabled={isSyncing}
               className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black shadow-2xl shadow-indigo-500/20 hover:bg-indigo-700 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
             >
-              {isSyncing ? <RefreshCw className="animate-spin w-5 h-5" /> : <span>Sign Into Terminal</span>}
+              {isSyncing ? <RefreshCw className="animate-spin w-5 h-5" /> : <span>Authorize Terminal Access</span>}
             </button>
 
             <div className="pt-4 text-center">
@@ -172,7 +169,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
                 onClick={() => { localStorage.clear(); window.location.reload(); }}
                 className="text-[9px] font-black uppercase text-slate-400 hover:text-rose-500 transition-colors"
                >
-                 Switch Organization
+                 Change Cloud Backend
                </button>
             </div>
           </form>
@@ -187,7 +184,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
         <div className="pt-6 text-center">
           <div className="flex items-center justify-center space-x-2 text-slate-300 opacity-60">
             <ShieldCheck size={16} />
-            <p className="text-[9px] font-black uppercase tracking-widest">End-To-End Cloud Encryption</p>
+            <p className="text-[9px] font-black uppercase tracking-widest">Private Infrastructure Security</p>
           </div>
         </div>
       </div>
@@ -199,11 +196,6 @@ const Login: React.FC<LoginProps> = ({ onLogin, employees, workspaceId, onSetWor
           75% { transform: translateX(4px); }
         }
         .animate-shake { animation: shake 0.2s ease-in-out 2; }
-        @keyframes bounce-slow {
-          0%, 100% { transform: translateY(-3px); }
-          50% { transform: translateY(0); }
-        }
-        .animate-bounce-slow { animation: bounce-slow 2s infinite ease-in-out; }
       `}</style>
     </div>
   );

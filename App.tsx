@@ -11,15 +11,14 @@ import EmployeeManager from './components/EmployeeManager';
 import CommunicationCenter from './components/CommunicationCenter';
 import Login from './components/Login';
 import PasswordChange from './components/PasswordChange';
-import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle, Cloud, RefreshCw, Globe, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle, Cloud, RefreshCw, Globe, ShieldCheck, Database } from 'lucide-react';
 
 const STORAGE_KEYS = {
-  WORKSPACE_ID: 'cf_workspace_id_v5',
-  LAST_FETCH: 'cf_last_fetch_v5'
+  BACKEND_URL: 'cf_backend_url_v6',
+  LOCAL_CACHE: 'cf_local_cache_v6'
 };
 
-const DEFAULT_PASSWORD = 'password123';
-const SYNC_INTERVAL = 8000; 
+const SYNC_INTERVAL = 10000; 
 
 export const getNJTime = () => new Date();
 
@@ -35,8 +34,8 @@ export const formatTime12h = (date: Date | string) => {
 };
 
 const App: React.FC = () => {
-  // --- WORKSPACE & SYNC ---
-  const [workspaceId, setWorkspaceId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.WORKSPACE_ID) || '');
+  // --- BACKEND CONFIG ---
+  const [backendUrl, setBackendUrl] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.BACKEND_URL) || '');
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbReady, setDbReady] = useState(false);
 
@@ -55,41 +54,40 @@ const App: React.FC = () => {
   const [showMessageCenter, setShowMessageCenter] = useState(false);
   const [showClockInPrompt, setShowClockInPrompt] = useState(false);
 
-  // --- CLOUD SYNC ENGINE ---
   const syncLock = useRef(false);
 
-  const fetchDatabase = async (id: string) => {
-    if (!id || syncLock.current) return;
+  // --- GOOGLE SHEETS SYNC ENGINE ---
+  const fetchFromSheets = async (url: string) => {
+    if (!url || syncLock.current) return false;
     try {
       syncLock.current = true;
       setIsSyncing(true);
-      const res = await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`);
+      const res = await fetch(url);
       if (res.ok) {
         const cloudData = await res.json();
-        if (cloudData) {
-          if (cloudData.employees) setAllEmployees(cloudData.employees);
+        if (cloudData && cloudData.employees) {
+          setAllEmployees(cloudData.employees);
           if (cloudData.projects) setAllProjects(cloudData.projects);
           if (cloudData.records) setAttendanceRecords(cloudData.records);
           if (cloudData.requests) setLeaveRequests(cloudData.requests);
           if (cloudData.messages) setMessages(cloudData.messages);
           if (cloudData.logs) setDailyActivityLogs(cloudData.logs);
           setDbReady(true);
+          return true;
         }
-      } else if (res.status === 404) {
-        // Workspace doesn't exist on cloud yet. Seed it with current (mock) state.
-        await pushDatabase(id);
-        setDbReady(true);
       }
+      return false;
     } catch (e) {
-      console.error("Fetch Error:", e);
+      console.error("Sheets Fetch Error:", e);
+      return false;
     } finally {
       setIsSyncing(false);
       syncLock.current = false;
     }
   };
 
-  const pushDatabase = async (id: string) => {
-    if (!id) return;
+  const pushToSheets = async (url: string) => {
+    if (!url) return;
     try {
       setIsSyncing(true);
       const data = {
@@ -99,36 +97,47 @@ const App: React.FC = () => {
         requests: leaveRequests,
         messages: messages,
         logs: dailyActivityLogs,
-        version: '5.1',
         pushedAt: new Date().toISOString()
       };
-      await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`, {
+      
+      // Google Apps Script requires a simple POST
+      await fetch(url, {
         method: 'POST',
+        mode: 'no-cors', // Essential for GAS Web Apps
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
     } catch (e) {
-      console.error("Push Error:", e);
+      console.error("Sheets Push Error:", e);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Immediate effect to handle Workspace ID change
+  // Initial Sync
   useEffect(() => {
-    if (workspaceId) {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACE_ID, workspaceId);
-      fetchDatabase(workspaceId);
+    if (backendUrl) {
+      localStorage.setItem(STORAGE_KEYS.BACKEND_URL, backendUrl);
+      fetchFromSheets(backendUrl);
     }
-  }, [workspaceId]);
+  }, [backendUrl]);
 
-  // Polling logic
+  // Polling
   useEffect(() => {
-    if (!workspaceId) return;
-    const interval = setInterval(() => fetchDatabase(workspaceId), SYNC_INTERVAL);
+    if (!backendUrl) return;
+    const interval = setInterval(() => fetchFromSheets(backendUrl), SYNC_INTERVAL);
     return () => clearInterval(interval);
-  }, [workspaceId]);
+  }, [backendUrl]);
 
-  // --- ACTIONS ---
+  // Auto-save cycle
+  useEffect(() => {
+    if (backendUrl && dbReady) {
+      const timeout = setTimeout(() => pushToSheets(backendUrl), 2000);
+      return () => clearTimeout(timeout);
+    }
+  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs]);
+
+  // --- LOGIC HANDLERS ---
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
     if (!currentUser) return;
     const ts = new Date().toISOString();
@@ -147,17 +156,14 @@ const App: React.FC = () => {
     };
     
     setAttendanceRecords(prev => [...prev, record]);
-    setAllEmployees(prev => {
-      const updated = prev.map(emp => {
-        if (emp.id === currentUser.id) {
-          const up = { ...emp, status, activeProjectId: projectId || emp.activeProjectId, lastActionTime: ts };
-          setCurrentUser(up);
-          return up;
-        }
-        return emp;
-      });
-      return updated;
-    });
+    setAllEmployees(prev => prev.map(emp => {
+      if (emp.id === currentUser.id) {
+        const up = { ...emp, status, activeProjectId: projectId || emp.activeProjectId, lastActionTime: ts };
+        setCurrentUser(up);
+        return up;
+      }
+      return emp;
+    }));
   };
 
   const handleLogin = (user: Employee) => {
@@ -186,28 +192,20 @@ const App: React.FC = () => {
     if (currentUser && (currentUser.status === EmployeeStatus.ACTIVE || currentUser.status === EmployeeStatus.BREAK)) {
       handleUpdateStatus(EmployeeStatus.OFF);
     }
-    if (workspaceId) await pushDatabase(workspaceId);
+    if (backendUrl) await pushToSheets(backendUrl);
     setCurrentUser(null);
     setShowClockInPrompt(false);
   };
-
-  // Global Sync Hook for any state changes
-  useEffect(() => {
-    if (workspaceId && dbReady) {
-      const timeout = setTimeout(() => pushDatabase(workspaceId), 2000);
-      return () => clearTimeout(timeout);
-    }
-  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs]);
 
   if (!currentUser) {
     return (
       <Login 
         onLogin={handleLogin} 
         employees={allEmployees} 
-        workspaceId={workspaceId}
-        onSetWorkspaceId={(id) => {
-          setWorkspaceId(id);
-          return fetchDatabase(id);
+        backendUrl={backendUrl}
+        onSetBackendUrl={(url) => {
+          setBackendUrl(url);
+          return fetchFromSheets(url);
         }}
         isSyncing={isSyncing}
         dbReady={dbReady}
@@ -224,9 +222,9 @@ const App: React.FC = () => {
         </div>
         
         <div className="px-6 mb-4 flex items-center space-x-2">
-           <Globe size={14} className={isSyncing ? 'text-amber-500 animate-pulse' : 'text-emerald-500'} />
+           <Database size={14} className={isSyncing ? 'text-amber-500 animate-pulse' : 'text-emerald-500'} />
            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-             {workspaceId.substr(0, 10)}
+             Sheets Backend
            </span>
         </div>
 
@@ -261,9 +259,9 @@ const App: React.FC = () => {
             </h1>
             <div className="flex items-center space-x-4">
                <button 
-                onClick={() => fetchDatabase(workspaceId)} 
+                onClick={() => fetchFromSheets(backendUrl)} 
                 className={`p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 transition-all ${isSyncing ? 'animate-spin' : ''}`}
-                title="Force Sync"
+                title="Sync Sheets"
                >
                 <RefreshCw size={16} />
                </button>
@@ -284,7 +282,7 @@ const App: React.FC = () => {
           {activeTab === 'MANAGEMENT' && <ManagerPortal employees={allEmployees} projects={allProjects} currentUser={currentUser} attendanceRecords={attendanceRecords} dailyActivityLogs={dailyActivityLogs} />}
           {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={(p) => setAllProjects(prev => [...prev, p])} onUpdateProject={(up) => setAllProjects(prev => prev.map(p => p.id === up.id ? up : p))} onDeleteProject={(id) => setAllProjects(prev => prev.filter(p => p.id !== id))} currentUser={currentUser} />}
           {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} onDeleteEmployee={(id) => setAllEmployees(prev => prev.filter(e => e.id !== id))} currentUser={currentUser} />}
-          {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} workspaceId={workspaceId} setWorkspaceId={setWorkspaceId} onSyncNow={() => fetchDatabase(workspaceId)} />}
+          {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} workspaceId={backendUrl} setWorkspaceId={setBackendUrl} onSyncNow={() => fetchFromSheets(backendUrl)} />}
         </div>
       </main>
 
