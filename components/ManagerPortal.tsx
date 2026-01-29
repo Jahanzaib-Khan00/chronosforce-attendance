@@ -25,7 +25,6 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [projectFilter, setProjectFilter] = useState('ALL');
-  const [teamFilter, setTeamFilter] = useState('ALL');
   const [liveFilter, setLiveFilter] = useState<LiveFilter>('CLOCKED_IN');
   const [showReportBuilder, setShowReportBuilder] = useState(false);
 
@@ -44,21 +43,18 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
     return list.filter(e => {
       const matchesSearch = e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.code.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = projectFilter === 'ALL' ? true : e.activeProjectId === projectFilter;
-      const matchesTeam = teamFilter === 'ALL' ? true : e.supervisorId === teamFilter;
       let matchesLive = true;
       if (liveFilter === 'CLOCKED_IN') matchesLive = (e.status === EmployeeStatus.ACTIVE || e.status === EmployeeStatus.BREAK);
       else if (liveFilter === 'CLOCKED_OUT') matchesLive = (e.status === EmployeeStatus.OFF || e.status === EmployeeStatus.LEAVE);
-      return matchesSearch && matchesProject && matchesTeam && matchesLive;
+      return matchesSearch && matchesProject && matchesLive;
     });
-  }, [employees, currentUser, searchTerm, projectFilter, teamFilter, liveFilter]);
+  }, [employees, currentUser, searchTerm, projectFilter, liveFilter]);
 
-  const stats = useMemo(() => {
-    return {
-      active: employees.filter(e => e.status === EmployeeStatus.ACTIVE || e.status === EmployeeStatus.BREAK).length,
-      onBreak: employees.filter(e => e.status === EmployeeStatus.BREAK).length,
-      off: employees.filter(e => e.status === EmployeeStatus.OFF).length,
-    };
-  }, [employees]);
+  const stats = useMemo(() => ({
+    active: employees.filter(e => e.status === EmployeeStatus.ACTIVE || e.status === EmployeeStatus.BREAK).length,
+    onBreak: employees.filter(e => e.status === EmployeeStatus.BREAK).length,
+    off: employees.filter(e => e.status === EmployeeStatus.OFF).length,
+  }), [employees]);
 
   const calculateLateDuration = (emp: Employee) => {
     const njNowStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
@@ -67,7 +63,8 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
       return r.employeeId === emp.id && r.type === 'CLOCK_IN' && rNJStr === njNowStr;
     });
 
-    if (!clockIn) return "00:00";
+    // Fix: Return an object instead of string to fix property access errors (type and text) in JSX
+    if (!clockIn) return { text: "--:--", type: 'NONE' };
 
     const [sh, sm] = emp.shift.start.split(':').map(Number);
     const actualIn = new Date(clockIn.timestamp);
@@ -83,9 +80,9 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
     const m = diffMins % 60;
     const timeFormatted = `${h}h ${m}m`;
 
-    if (diffMs > 60000) return `${timeFormatted} Late`; // More than 1 min late
-    if (diffMs < -60000) return `${timeFormatted} Early`; // More than 1 min early
-    return "On Time";
+    if (diffMs > 60000) return { text: `${timeFormatted} Late`, type: 'LATE' };
+    if (diffMs < -60000) return { text: `${timeFormatted} Early`, type: 'EARLY' };
+    return { text: "On Time", type: 'ON_TIME' };
   };
 
   return (
@@ -123,7 +120,7 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
           </div>
           <div className="text-[10px] font-black uppercase text-indigo-400 tracking-[0.2em] flex items-center">
             <span className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></span>
-            Eastern Time Pulse Active
+            NJ Server Sync Active
           </div>
         </div>
 
@@ -165,8 +162,12 @@ const ManagerPortal: React.FC<ManagerPortalProps> = ({
                       </td>
                       <td className="px-8 py-5 text-sm font-black text-slate-700">{clockIn ? formatTime12h(clockIn.timestamp) : '--:--'}</td>
                       <td className="px-8 py-5">
-                        <span className={`text-sm font-black tracking-tighter ${late.includes('Late') ? 'text-rose-500' : late.includes('Early') ? 'text-indigo-500' : 'text-slate-300'}`}>
-                          {late}
+                        <span className={`text-sm font-black tracking-tighter ${
+                          late.type === 'LATE' ? 'text-rose-500' : 
+                          late.type === 'EARLY' ? 'text-indigo-500' : 
+                          'text-slate-300'
+                        }`}>
+                          {late.text}
                         </span>
                       </td>
                     </tr>

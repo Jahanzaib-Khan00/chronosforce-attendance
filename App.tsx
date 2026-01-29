@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Employee, EmployeeStatus, AttendanceRecord, LeaveRequest, UserRole, Project, Message, DailyActivityLog } from './types';
 import { MOCK_EMPLOYEES, PROJECTS } from './constants';
 import EmployeePortal from './components/EmployeePortal';
@@ -11,19 +11,21 @@ import EmployeeManager from './components/EmployeeManager';
 import CommunicationCenter from './components/CommunicationCenter';
 import Login from './components/Login';
 import PasswordChange from './components/PasswordChange';
-import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle } from 'lucide-react';
+import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle, Cloud, RefreshCw } from 'lucide-react';
 
 const STORAGE_KEYS = {
-  EMPLOYEES: 'cf_employees_v2',
-  PROJECTS: 'cf_projects_v2',
-  RECORDS: 'cf_records_v2',
-  REQUESTS: 'cf_requests_v2',
-  MESSAGES: 'cf_messages_v2',
-  LOGS: 'cf_logs_v2',
-  LAST_READ: 'cf_last_read_v2'
+  EMPLOYEES: 'cf_employees_v3',
+  PROJECTS: 'cf_projects_v3',
+  RECORDS: 'cf_records_v3',
+  REQUESTS: 'cf_requests_v3',
+  MESSAGES: 'cf_messages_v3',
+  LOGS: 'cf_logs_v3',
+  SYNC_ID: 'cf_sync_id_v3',
+  LAST_READ: 'cf_last_read_v3'
 };
 
 const DEFAULT_PASSWORD = 'password123';
+const SYNC_INTERVAL = 10000; // 10 seconds
 
 export const getNJTime = () => new Date();
 
@@ -39,6 +41,11 @@ export const formatTime12h = (date: Date | string) => {
 };
 
 const App: React.FC = () => {
+  // --- STATE ---
+  const [syncId, setSyncId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.SYNC_ID) || '');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+
   const [allEmployees, setAllEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
     return saved ? JSON.parse(saved) : MOCK_EMPLOYEES;
@@ -79,41 +86,88 @@ const App: React.FC = () => {
   const [showMessageCenter, setShowMessageCenter] = useState(false);
   const [showClockInPrompt, setShowClockInPrompt] = useState(false);
 
-  // Persistence
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(allEmployees)), [allEmployees]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects)), [allProjects]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(attendanceRecords)), [attendanceRecords]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(leaveRequests)), [leaveRequests]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages)), [messages]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(dailyActivityLogs)), [dailyActivityLogs]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.LAST_READ, JSON.stringify(lastReadTimestamps)), [lastReadTimestamps]);
+  // --- CLOUD SYNC ENGINE ---
+  const syncInProgress = useRef(false);
 
-  // Global Time Processor
+  const fetchFromCloud = async (id: string) => {
+    if (syncInProgress.current || !id) return;
+    try {
+      syncInProgress.current = true;
+      setIsSyncing(true);
+      // Use a free KV store (kvdb.io is great for simple JSON blobs)
+      const res = await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`);
+      if (res.ok) {
+        const cloudData = await res.json();
+        if (cloudData) {
+          if (cloudData.employees) setAllEmployees(cloudData.employees);
+          if (cloudData.projects) setAllProjects(cloudData.projects);
+          if (cloudData.records) setAttendanceRecords(cloudData.records);
+          if (cloudData.requests) setLeaveRequests(cloudData.requests);
+          if (cloudData.messages) setMessages(cloudData.messages);
+          if (cloudData.logs) setDailyActivityLogs(cloudData.logs);
+          setLastSyncTime(new Date().toISOString());
+        }
+      }
+    } catch (e) {
+      console.error("Cloud Sync Error (Fetch):", e);
+    } finally {
+      setIsSyncing(false);
+      syncInProgress.current = false;
+    }
+  };
+
+  const pushToCloud = async (id: string) => {
+    if (!id) return;
+    try {
+      setIsSyncing(true);
+      const data = {
+        employees: allEmployees,
+        projects: allProjects,
+        records: attendanceRecords,
+        requests: leaveRequests,
+        messages: messages,
+        logs: dailyActivityLogs,
+        updatedAt: new Date().toISOString()
+      };
+      await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    } catch (e) {
+      console.error("Cloud Sync Error (Push):", e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Poll cloud for updates
   useEffect(() => {
-    const timer = setInterval(() => {
-      const nowUTC = new Date();
-      const njString = nowUTC.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-      const [njDate, njTime] = njString.split(', ');
-      const [currH, currM] = njTime.split(':').map(Number);
+    if (!syncId) return;
+    fetchFromCloud(syncId);
+    const interval = setInterval(() => fetchFromCloud(syncId), SYNC_INTERVAL);
+    return () => clearInterval(interval);
+  }, [syncId]);
 
-      setAllEmployees(prev => prev.map(emp => {
-        if (emp.status === EmployeeStatus.ACTIVE || emp.status === EmployeeStatus.BREAK) {
-          const [endH, endM] = emp.shift.end.split(':').map(Number);
-          if ((currH > endH || (currH === endH && currM >= endM)) && !emp.otEnabled) {
-            const ts = nowUTC.toISOString();
-            if (currentUser?.id === emp.id) setCurrentUser(u => u ? { ...u, status: EmployeeStatus.OFF, lastActionTime: ts } : null);
-            return { ...emp, status: EmployeeStatus.OFF, lastActionTime: ts };
-          }
-        }
-        if (emp.status === EmployeeStatus.ACTIVE) {
-          return { ...emp, totalMinutesWorkedToday: emp.totalMinutesWorkedToday + 1 };
-        }
-        return emp;
-      }));
-    }, 60000); 
-    return () => clearInterval(timer);
-  }, [currentUser]);
+  // Push local changes when they happen (throttled)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (syncId) pushToCloud(syncId);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
 
+  // Local Storage persistence as fallback
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(allEmployees));
+    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects));
+    localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(attendanceRecords));
+    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(leaveRequests));
+    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
+    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(dailyActivityLogs));
+    localStorage.setItem(STORAGE_KEYS.SYNC_ID, syncId);
+  }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
+
+  // --- LOGIC ---
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
     if (!currentUser) return;
     const ts = new Date().toISOString();
@@ -144,26 +198,39 @@ const App: React.FC = () => {
 
   const handleLogin = (user: Employee) => {
     const njToday = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-    const hasClockedInToday = attendanceRecords.some(r => {
+    
+    // Find last status for today
+    const todaysRecords = attendanceRecords.filter(r => {
       const rNJ = new Date(r.timestamp).toLocaleDateString("en-US", { timeZone: "America/New_York" });
-      return r.employeeId === user.id && r.type === 'CLOCK_IN' && rNJ === njToday;
-    });
+      return r.employeeId === user.id && rNJ === njToday;
+    }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const lastRecord = todaysRecords.length > 0 ? todaysRecords[todaysRecords.length - 1] : null;
 
     let synchronizedUser = { ...user };
-    // Force status to OFF if no record exists for today in NJ timezone
-    if (!hasClockedInToday) {
+    
+    if (!lastRecord || lastRecord.type === 'CLOCK_OUT') {
       synchronizedUser.status = EmployeeStatus.OFF;
       setShowClockInPrompt(true);
+    } else {
+      // User was already clocked in, resume their state
+      if (lastRecord.type === 'CLOCK_IN' || lastRecord.type === 'BREAK_END' || lastRecord.type === 'PROJECT_CHANGE') {
+        synchronizedUser.status = EmployeeStatus.ACTIVE;
+      } else if (lastRecord.type === 'BREAK_START') {
+        synchronizedUser.status = EmployeeStatus.BREAK;
+      }
+      synchronizedUser.activeProjectId = lastRecord.projectId || user.activeProjectId;
     }
     
     setAllEmployees(prev => prev.map(e => e.id === user.id ? synchronizedUser : e));
     setCurrentUser(synchronizedUser);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (currentUser && (currentUser.status === EmployeeStatus.ACTIVE || currentUser.status === EmployeeStatus.BREAK)) {
       handleUpdateStatus(EmployeeStatus.OFF);
     }
+    if (syncId) await pushToCloud(syncId);
     setCurrentUser(null);
     setShowClockInPrompt(false);
   };
@@ -177,7 +244,6 @@ const App: React.FC = () => {
   };
 
   const hasMgmtAccess = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser?.role || UserRole.EMPLOYEE);
-  const isHighLevel = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser?.role || UserRole.EMPLOYEE);
 
   if (!currentUser) return <Login onLogin={handleLogin} employees={allEmployees} />;
 
@@ -190,15 +256,23 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      <aside className="w-20 md:w-64 bg-white border-r hidden sm:flex flex-col fixed h-full z-20">
+      <aside className="w-20 md:w-64 bg-white border-r hidden sm:flex flex-col fixed h-full z-20 shadow-xl shadow-slate-200/50">
         <div className="p-6 flex items-center space-x-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100"><Clock className="text-white w-6 h-6" /></div>
           <span className="font-bold text-xl hidden md:block tracking-tighter text-slate-900">ChronosForce</span>
         </div>
-        <nav className="flex-1 px-4 space-y-2 mt-4 flex flex-col">
+        
+        <div className="px-6 mb-4 flex items-center space-x-2">
+           <Cloud size={14} className={syncId ? (isSyncing ? 'text-amber-500 animate-pulse' : 'text-emerald-500') : 'text-slate-300'} />
+           <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+             {syncId ? 'Cloud Active' : 'Offline Mode'}
+           </span>
+        </div>
+
+        <nav className="flex-1 px-4 space-y-2 mt-2 flex flex-col">
           <NavItem icon={<LayoutDashboard />} label="My Portal" active={activeTab === 'PORTAL'} onClick={() => setActiveTab('PORTAL')} />
           {hasMgmtAccess && <NavItem icon={<Activity />} label="Live" active={activeTab === 'MANAGEMENT'} onClick={() => setActiveTab('MANAGEMENT')} />}
-          {isHighLevel && (
+          {[UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser.role) && (
             <>
               <NavItem icon={<FolderKanban />} label="Projects" active={activeTab === 'PROJECTS'} onClick={() => setActiveTab('PROJECTS')} />
               <NavItem icon={<UserRoundSearch />} label="Manage Staff" active={activeTab === 'EMPLOYEES'} onClick={() => setActiveTab('EMPLOYEES')} />
@@ -212,7 +286,7 @@ const App: React.FC = () => {
           </div>
         </nav>
         <div className="p-4 border-t border-slate-100">
-          <button onClick={handleLogout} className="w-full p-4 bg-slate-900 rounded-2xl text-white flex items-center justify-center space-x-3 hover:bg-slate-800 transition-colors">
+          <button onClick={handleLogout} className="w-full p-4 bg-slate-900 rounded-2xl text-white flex items-center justify-center space-x-3 hover:bg-slate-800 transition-all">
             <LogOut size={18} />
             <span className="hidden md:block font-bold">Sign Out</span>
           </button>
@@ -223,9 +297,20 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto">
           <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-4">
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight capitalize">
-              {activeTab === 'MANAGEMENT' ? 'Live' : activeTab === 'REQUESTS' ? 'Requests' : activeTab === 'EMPLOYEES' ? 'Staff' : activeTab === 'ADMIN' ? 'Admin' : activeTab.toLowerCase()} Hub
+              {activeTab === 'MANAGEMENT' ? 'Live' : activeTab === 'REQUESTS' ? 'Requests' : activeTab === 'EMPLOYEES' ? 'Staffing' : activeTab === 'ADMIN' ? 'Admin Tools' : activeTab.toLowerCase()} Hub
             </h1>
-            <div className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-md shadow-indigo-100">{currentUser.role.replace('_', ' ')}</div>
+            <div className="flex items-center space-x-4">
+               {syncId && (
+                 <button 
+                  onClick={() => fetchFromCloud(syncId)} 
+                  className={`p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 transition-all ${isSyncing ? 'animate-spin' : ''}`}
+                  title="Force Sync"
+                 >
+                  <RefreshCw size={16} />
+                 </button>
+               )}
+               <div className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-md shadow-indigo-100">{currentUser.role.replace('_', ' ')}</div>
+            </div>
           </header>
 
           {activeTab === 'PORTAL' && (
@@ -242,11 +327,10 @@ const App: React.FC = () => {
           {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={(p) => setAllProjects(prev => [...prev, p])} onUpdateProject={(up) => setAllProjects(prev => prev.map(p => p.id === up.id ? up : p))} onDeleteProject={(id) => setAllProjects(prev => prev.filter(p => p.id !== id))} currentUser={currentUser} />}
           {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} onDeleteEmployee={(id) => setAllEmployees(prev => prev.filter(e => e.id !== id))} currentUser={currentUser} />}
           {activeTab === 'REQUESTS' && <RequestManager requests={leaveRequests.filter(req => isSuperior(currentUser.id, req.employeeId))} userRole={currentUser.role} onApprove={(id, role) => setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, finalStatus: role === UserRole.DIRECTOR ? 'APPROVED' : r.finalStatus } : r))} onReject={(id) => setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, finalStatus: 'REJECTED' } : r))} onDeleteRequest={(id) => setLeaveRequests(prev => prev.filter(r => r.id !== id))} />}
-          {activeTab === 'ADMIN' && <AdminPortal onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} employees={allEmployees} projects={allProjects} />}
+          {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} syncId={syncId} setSyncId={setSyncId} onSyncNow={() => fetchFromCloud(syncId)} />}
         </div>
       </main>
 
-      {/* Clock-in Prompt Modal */}
       {showClockInPrompt && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white max-w-sm w-full rounded-[2rem] shadow-2xl p-8 space-y-6 text-center animate-in zoom-in-95">
