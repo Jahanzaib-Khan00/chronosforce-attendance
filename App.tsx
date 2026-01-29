@@ -14,18 +14,18 @@ import PasswordChange from './components/PasswordChange';
 import { LayoutDashboard, Users, Clock, LogOut, ClipboardCheck, UserCog, FolderKanban, UserRoundSearch, MessageCircle, Activity, FileText, CheckCircle2, XCircle, Cloud, RefreshCw } from 'lucide-react';
 
 const STORAGE_KEYS = {
-  EMPLOYEES: 'cf_employees_v3',
-  PROJECTS: 'cf_projects_v3',
-  RECORDS: 'cf_records_v3',
-  REQUESTS: 'cf_requests_v3',
-  MESSAGES: 'cf_messages_v3',
-  LOGS: 'cf_logs_v3',
-  SYNC_ID: 'cf_sync_id_v3',
-  LAST_READ: 'cf_last_read_v3'
+  EMPLOYEES: 'cf_employees_v4',
+  PROJECTS: 'cf_projects_v4',
+  RECORDS: 'cf_records_v4',
+  REQUESTS: 'cf_requests_v4',
+  MESSAGES: 'cf_messages_v4',
+  LOGS: 'cf_logs_v4',
+  SYNC_ID: 'cf_sync_id_v4',
+  LAST_READ: 'cf_last_read_v4'
 };
 
 const DEFAULT_PASSWORD = 'password123';
-const SYNC_INTERVAL = 10000;
+const SYNC_INTERVAL = 10000; 
 
 export const getNJTime = () => new Date();
 
@@ -41,6 +41,7 @@ export const formatTime12h = (date: Date | string) => {
 };
 
 const App: React.FC = () => {
+  // --- GLOBAL STATE ---
   const [syncId, setSyncId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.SYNC_ID) || '');
   const [isSyncing, setIsSyncing] = useState(false);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
@@ -83,13 +84,15 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : {};
   });
 
+  // --- CLOUD SYNC LOGIC ---
   const syncInProgress = useRef(false);
 
   const fetchFromCloud = async (id: string) => {
-    if (syncInProgress.current || !id) return;
+    if (!id || syncInProgress.current) return false;
     try {
       syncInProgress.current = true;
       setIsSyncing(true);
+      // Using a slightly more reliable bucket strategy
       const res = await fetch(`https://kvdb.io/A2WkXv7U8rKj1L9p5hE3z/${id}`);
       if (res.ok) {
         const cloudData = await res.json();
@@ -100,10 +103,13 @@ const App: React.FC = () => {
           if (cloudData.requests) setLeaveRequests(cloudData.requests);
           if (cloudData.messages) setMessages(cloudData.messages);
           if (cloudData.logs) setDailyActivityLogs(cloudData.logs);
+          return true;
         }
       }
+      return false;
     } catch (e) {
       console.error("Cloud Sync Error (Fetch):", e);
+      return false;
     } finally {
       setIsSyncing(false);
       syncInProgress.current = false;
@@ -134,6 +140,7 @@ const App: React.FC = () => {
     }
   };
 
+  // Auto-fetch cycle
   useEffect(() => {
     if (!syncId) return;
     fetchFromCloud(syncId);
@@ -141,13 +148,15 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [syncId]);
 
+  // Push cycle (Throttled)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (syncId) pushToCloud(syncId);
-    }, 2000);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
 
+  // Local Persistence
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(allEmployees));
     localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects));
@@ -158,6 +167,7 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SYNC_ID, syncId);
   }, [allEmployees, allProjects, attendanceRecords, leaveRequests, messages, dailyActivityLogs, syncId]);
 
+  // --- ACTIONS ---
   const handleUpdateStatus = (status: EmployeeStatus, projectId?: string) => {
     if (!currentUser) return;
     const ts = new Date().toISOString();
@@ -193,18 +203,15 @@ const App: React.FC = () => {
       return r.employeeId === user.id && rNJ === njToday;
     }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const lastRecord = todaysRecords.length > 0 ? todaysRecords[todaysRecords.length - 1] : null;
+    const lastRecord = todaysRecords[todaysRecords.length - 1];
     let synchronizedUser = { ...user };
     
     if (!lastRecord || lastRecord.type === 'CLOCK_OUT') {
       synchronizedUser.status = EmployeeStatus.OFF;
       setShowClockInPrompt(true);
     } else {
-      if (lastRecord.type === 'CLOCK_IN' || lastRecord.type === 'BREAK_END' || lastRecord.type === 'PROJECT_CHANGE') {
-        synchronizedUser.status = EmployeeStatus.ACTIVE;
-      } else if (lastRecord.type === 'BREAK_START') {
-        synchronizedUser.status = EmployeeStatus.BREAK;
-      }
+      if (['CLOCK_IN', 'BREAK_END', 'PROJECT_CHANGE'].includes(lastRecord.type)) synchronizedUser.status = EmployeeStatus.ACTIVE;
+      else if (lastRecord.type === 'BREAK_START') synchronizedUser.status = EmployeeStatus.BREAK;
       synchronizedUser.activeProjectId = lastRecord.projectId || user.activeProjectId;
     }
     
@@ -229,8 +236,6 @@ const App: React.FC = () => {
     return isSuperior(managerId, employee.supervisorId);
   };
 
-  const hasMgmtAccess = [UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser?.role || UserRole.EMPLOYEE);
-
   if (!currentUser) {
     return (
       <Login 
@@ -239,18 +244,11 @@ const App: React.FC = () => {
         syncId={syncId}
         onSetSyncId={(id) => {
           setSyncId(id);
-          fetchFromCloud(id);
+          return fetchFromCloud(id);
         }}
         isSyncing={isSyncing}
       />
     );
-  }
-
-  if (currentUser.password === DEFAULT_PASSWORD) {
-    return <PasswordChange user={currentUser} onUpdatePassword={(p) => {
-      setAllEmployees(prev => prev.map(e => e.id === currentUser.id ? { ...e, password: p } : e));
-      setCurrentUser({ ...currentUser, password: p });
-    }} onLogout={handleLogout} />;
   }
 
   return (
@@ -270,17 +268,16 @@ const App: React.FC = () => {
 
         <nav className="flex-1 px-4 space-y-2 mt-2 flex flex-col">
           <NavItem icon={<LayoutDashboard />} label="My Portal" active={activeTab === 'PORTAL'} onClick={() => setActiveTab('PORTAL')} />
-          {hasMgmtAccess && <NavItem icon={<Activity />} label="Live" active={activeTab === 'MANAGEMENT'} onClick={() => setActiveTab('MANAGEMENT')} />}
-          {[UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser.role) && (
+          {([UserRole.ADMIN, UserRole.TOP_MANAGEMENT, UserRole.DIRECTOR, UserRole.SUPERVISOR, UserRole.TEAM_LEAD].includes(currentUser.role)) && (
             <>
+              <NavItem icon={<Activity />} label="Live" active={activeTab === 'MANAGEMENT'} onClick={() => setActiveTab('MANAGEMENT')} />
               <NavItem icon={<FolderKanban />} label="Projects" active={activeTab === 'PROJECTS'} onClick={() => setActiveTab('PROJECTS')} />
-              <NavItem icon={<UserRoundSearch />} label="Manage Staff" active={activeTab === 'EMPLOYEES'} onClick={() => setActiveTab('EMPLOYEES')} />
+              <NavItem icon={<UserRoundSearch />} label="Staffing" active={activeTab === 'EMPLOYEES'} onClick={() => setActiveTab('EMPLOYEES')} />
             </>
           )}
           {currentUser.role === UserRole.ADMIN && <NavItem icon={<UserCog />} label="Admin Tools" active={activeTab === 'ADMIN'} onClick={() => setActiveTab('ADMIN')} />}
           
           <div className="mt-auto space-y-2 pb-6 pt-6 border-t border-slate-100">
-             {hasMgmtAccess && <NavItem icon={<FileText />} label="Requests" active={activeTab === 'REQUESTS'} onClick={() => setActiveTab('REQUESTS')} />}
              <NavItem icon={<MessageCircle />} label="Messages" active={showMessageCenter} onClick={() => setShowMessageCenter(true)} badge={messages.filter(m => m.receiverId === currentUser.id && m.timestamp > (lastReadTimestamps[m.senderId] || '0')).length} />
           </div>
         </nav>
@@ -303,7 +300,7 @@ const App: React.FC = () => {
                  <button 
                   onClick={() => fetchFromCloud(syncId)} 
                   className={`p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 transition-all ${isSyncing ? 'animate-spin' : ''}`}
-                  title="Force Sync"
+                  title="Manual Refresh"
                  >
                   <RefreshCw size={16} />
                  </button>
@@ -325,14 +322,13 @@ const App: React.FC = () => {
           {activeTab === 'MANAGEMENT' && <ManagerPortal employees={allEmployees} projects={allProjects} currentUser={currentUser} attendanceRecords={attendanceRecords} dailyActivityLogs={dailyActivityLogs} />}
           {activeTab === 'PROJECTS' && <ProjectManager projects={allProjects} employees={allEmployees} onAddProject={(p) => setAllProjects(prev => [...prev, p])} onUpdateProject={(up) => setAllProjects(prev => prev.map(p => p.id === up.id ? up : p))} onDeleteProject={(id) => setAllProjects(prev => prev.filter(p => p.id !== id))} currentUser={currentUser} />}
           {activeTab === 'EMPLOYEES' && <EmployeeManager employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} onDeleteEmployee={(id) => setAllEmployees(prev => prev.filter(e => e.id !== id))} currentUser={currentUser} />}
-          {activeTab === 'REQUESTS' && <RequestManager requests={leaveRequests.filter(req => isSuperior(currentUser.id, req.employeeId))} userRole={currentUser.role} onApprove={(id, role) => setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, finalStatus: role === UserRole.DIRECTOR ? 'APPROVED' : r.finalStatus } : r))} onReject={(id) => setLeaveRequests(prev => prev.map(r => r.id === id ? { ...r, finalStatus: 'REJECTED' } : r))} onDeleteRequest={(id) => setLeaveRequests(prev => prev.filter(r => r.id !== id))} />}
-          {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} syncId={syncId} setSyncId={setSyncId} onSyncNow={() => fetchFromCloud(syncId)} />}
+          {activeTab === 'ADMIN' && <AdminPortal employees={allEmployees} projects={allProjects} onAddEmployee={(e) => setAllEmployees(prev => [...prev, e])} onUpdateEmployee={(e) => setAllEmployees(prev => prev.map(ex => ex.id === e.id ? e : ex))} syncId={syncId} setSyncId={(id) => { setSyncId(id); fetchFromCloud(id); }} onSyncNow={() => fetchFromCloud(syncId)} />}
         </div>
       </main>
 
       {showClockInPrompt && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white max-w-sm w-full rounded-[2rem] shadow-2xl p-8 space-y-6 text-center animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white max-w-sm w-full rounded-[2rem] shadow-2xl p-8 space-y-6 text-center">
             <div className="w-16 h-16 bg-indigo-100 rounded-2xl mx-auto flex items-center justify-center text-indigo-600">
               <Clock size={32} />
             </div>
@@ -343,9 +339,9 @@ const App: React.FC = () => {
             <div className="flex flex-col space-y-3">
               <button 
                 onClick={() => { handleUpdateStatus(EmployeeStatus.ACTIVE); setShowClockInPrompt(false); }}
-                className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center"
+                className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl hover:bg-indigo-700 transition-all"
               >
-                <CheckCircle2 size={18} className="mr-2" /> Yes, Clock In
+                Yes, Clock In
               </button>
               <button 
                 onClick={() => setShowClockInPrompt(false)}
@@ -377,7 +373,7 @@ const NavItem = ({ icon, label, active, onClick, badge }: { icon: React.ReactNod
       <span className="font-bold text-sm hidden md:block whitespace-nowrap">{label}</span>
     </div>
     {badge && badge > 0 ? (
-      <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white font-black animate-in zoom-in">
+      <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white font-black">
         {badge}
       </span>
     ) : null}
